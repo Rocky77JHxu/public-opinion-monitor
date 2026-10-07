@@ -1,0 +1,292 @@
+app:
+  name: opinion-monitor
+  environment: development
+  timezone: Asia/Shanghai
+  log_level: INFO
+
+storage:
+  backend: sqlite
+  sqlite:
+    path: data/opinion_monitor.db
+  postgres:
+    dsn_env: POSTGRES_DSN
+  raw_retention_days: 30
+  processed_retention_days: 180
+
+scheduler:
+  enabled: true
+  max_concurrent_tasks: 3
+  task_timeout_seconds: 1800
+  missed_task_policy: skip
+
+hotsearch:
+  defaults:
+    enabled: true
+    interval_seconds: 300
+    jitter_min_seconds: 15
+    jitter_max_seconds: 45
+    timeout_seconds: 15
+    max_retries: 2
+
+  platforms:
+    weibo:
+      enabled: true
+      url: https://s.weibo.com/top/summary
+      parser: html
+      weight: 90
+    baidu:
+      enabled: true
+      url: https://top.baidu.com/board?tab=realtime
+      parser: html
+      weight: 85
+    zhihu:
+      enabled: true
+      url: https://www.zhihu.com/hot
+      parser: html
+      weight: 80
+    douyin:
+      enabled: true
+      url: https://www.douyin.com/aweme/v1/web/hot/search/list/
+      parser: json
+      weight: 90
+    bilibili:
+      enabled: true
+      url: https://api.bilibili.com/x/web-interface/search/square?limit=50
+      parser: json
+      weight: 75
+
+keyword_search:
+  defaults:
+    enabled: true
+    interval_seconds: 1800
+    jitter_min_seconds: 300
+    jitter_max_seconds: 600
+    max_items_per_keyword: 20
+    enable_comments: true
+    max_comments_per_item: 50
+
+  levels:
+    level_1:
+      enabled: true
+      weight: 100
+      interval_seconds: 1800
+      jitter_min_seconds: 300
+      jitter_max_seconds: 600
+      platforms: [xhs, dy, ks, bili, wb, tieba, zhihu]
+      keywords: []
+    level_2:
+      enabled: true
+      weight: 80
+      interval_seconds: 1800
+      jitter_min_seconds: 300
+      jitter_max_seconds: 600
+      platforms: [xhs, dy, ks, bili, wb, tieba, zhihu]
+      keywords: []
+    level_3:
+      enabled: false
+      weight: 60
+      interval_seconds: 3600
+      jitter_min_seconds: 600
+      jitter_max_seconds: 1200
+      platforms: [xhs, dy, wb]
+      keywords: []
+
+account_search:
+  defaults:
+    enabled: true
+    interval_seconds: 10800
+    jitter_min_seconds: 600
+    jitter_max_seconds: 1800
+    max_items_per_account: 30
+    enable_comments: true
+    max_comments_per_item: 50
+
+  # 请替换为你的部署已被授权使用的账号 ID。
+  accounts: {}
+
+mediacrawler:
+  root: third_party/MediaCrawler
+  save_option: jsonl
+  save_path: data/media_crawler
+  login_type: qrcode
+  enable_cdp_mode: true
+  enable_cdp_connect_existing: true
+  cdp_debug_port: 9222
+  enable_get_comments: true
+  max_comments_per_note: 50
+  enable_sub_comments: false
+  max_concurrency: 1
+  max_sleep_seconds: 2
+
+processing:
+  date_filter:
+    max_age_hours: 72
+    missing_published_at_policy: keep_for_manual_review
+
+  deduplication:
+    url:
+      enabled: true
+      strip_query_params:
+        - utm_source
+        - utm_medium
+        - utm_campaign
+        - share_token
+    content:
+      enabled: true
+      algorithm: simhash
+      title_similarity_threshold: 0.90
+      content_similarity_threshold: 0.88
+      cross_platform_merge: true
+
+  hotsearch_expansion:
+    enabled: true
+    max_items_per_hotword: 10
+    platforms: [wb, dy, xhs, bili, zhihu]
+
+rules:
+  categories:
+    sudden_event:
+      label: 突发事件类
+      weight: 100
+      keywords: [爆炸, 火灾, 地震, 洪水, 坍塌, 伤亡]
+    mass_event:
+      label: 群众性事件类
+      weight: 95
+      keywords: [聚集, 维权, 游行, 堵路]
+    police_stability:
+      label: 涉警涉稳类
+      weight: 92
+      keywords: [涉警, 警方通报, 执法冲突, 维稳]
+    livelihood_sensitive:
+      label: 民生敏感类
+      weight: 75
+      keywords: [食品, 学校, 医院, 停水, 停电, 物业]
+    cyber_fraud:
+      label: 网络与诈骗专项
+      weight: 85
+      keywords: [诈骗, 刷单, 赌博网站, 冒充公检法]
+    other:
+      label: 其他
+      weight: 30
+      keywords: []
+
+source_weights:
+  official_authority: 100
+  mainstream_media: 90
+  local_media: 85
+  verified_institution_account: 85
+  verified_personal_account: 70
+  ordinary_social_media: 60
+  anonymous_or_unverified: 45
+  default: 50
+
+platform_heat:
+  weibo:
+    top_rank_weight: 95
+    hot_value_field: hot_score
+  douyin:
+    top_rank_weight: 90
+    hot_value_field: hot_value
+  baidu:
+    top_rank_weight: 85
+    hot_value_field: hot_score
+  zhihu:
+    top_rank_weight: 80
+    hot_value_field: hot_score
+  bilibili:
+    top_rank_weight: 75
+    hot_value_field: score
+
+scoring:
+  normalization:
+    min: 0
+    max: 100
+  weights:
+    keyword_category: 0.25
+    source: 0.10
+    heat: 0.15
+    llm_category: 0.15
+    sentiment: 0.15
+    llm_risk: 0.20
+
+alert_levels:
+  red:
+    label: 红色 - 立即处置
+    min_score: 85
+  orange:
+    label: 橙色 - 关注核实
+    min_score: 70
+  blue:
+    label: 蓝色 - 记录归档
+    min_score: 40
+  archive:
+    label: 归档
+    min_score: 0
+
+sentiment:
+  model: openai_compatible
+  categories:
+    - strong_negative
+    - negative
+    - angry
+    - anxious
+    - distrustful
+    - questioning
+    - neutral
+    - positive
+    - supportive
+    - mixed
+    - invalid
+  weights:
+    strong_negative: 100
+    negative: 75
+    angry: 95
+    anxious: 80
+    distrustful: 75
+    questioning: 50
+    neutral: 40
+    positive: 10
+    supportive: 5
+    mixed: 50
+    invalid: 0
+
+llm:
+  provider: openai_compatible
+  base_url_env: OPENAI_BASE_URL
+  api_key_env: OPENAI_API_KEY
+  model_env: OPENAI_MODEL
+  temperature: 0.1
+  max_output_tokens: 2000
+  timeout_seconds: 60
+  max_retries: 2
+  enable_structured_output: true
+  prompt_dir: config/prompts
+
+output:
+  dingtalk:
+    enabled: true
+    webhook_url_env: DINGTALK_AUTOMATION_WEBHOOK_URL
+    timeout_seconds: 15
+    max_retries: 3
+    retry_backoff_seconds: 5
+    send_mode: automation_json
+    dry_run: true
+    levels:
+      red:
+        enabled: true
+        immediate: true
+      orange:
+        enabled: true
+        immediate: true
+      blue:
+        enabled: true
+        immediate: false
+      archive:
+        enabled: false
+
+security:
+  allow_private_network: false
+  validate_ssl: true
+  redact_phone_numbers: true
+  redact_id_numbers: true
+  mask_user_ids_in_output: true
