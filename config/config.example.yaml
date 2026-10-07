@@ -3,6 +3,7 @@ app:
   environment: development
   timezone: Asia/Shanghai
   log_level: INFO
+  log_format: console
 
 storage:
   backend: sqlite
@@ -148,23 +149,23 @@ rules:
     sudden_event:
       label: 突发事件类
       weight: 100
-      keywords: [爆炸, 火灾, 地震, 洪水, 坍塌, 伤亡]
+      keywords: [爆炸, 爆燃, 起火, 火灾, 坍塌, 塌方, 垮塌, 交通事故, 车祸, 追尾, 矿难, 瓦斯, 透水, 泄漏, 毒气, 化学品泄漏, 坠机, 坠毁, 沉船, 翻船, 踩踏, 施工事故, 高处坠落, 触电, 机械伤害, 溺水, 地震, 余震, 震感, 洪水, 汛情, 决堤, 内涝, 台风, 山体滑坡, 泥石流, 暴雪, 冰雹, 龙卷风, 地陷, 地面塌陷, 森林火灾, 食物中毒, 集体腹泻, 集体呕吐, 疑似食物中毒, 疫情, 聚集性疫情, 传染病, 职业中毒, 饮用水污染, 水质异常, 疫苗异常, 持刀伤人, 砍伤, 刺伤, 无差别伤人, 报复社会, 劫持, 人质, 纵火, 投毒, 爆炸物, 可疑包裹, 持刀, 行凶]
     mass_event:
       label: 群众性事件类
       weight: 95
-      keywords: [聚集, 维权, 游行, 堵路]
+      keywords: [聚集, 聚集上访, 群体聚集, 围堵, 堵门, 堵路, 堵桥, 罢工, 罢运, 罢市, 停工, 讨薪, 讨要工资, 静坐, 拉横幅, 举牌子, 集体维权, 聚集维权, 医闹, 校闹, 聚集讨说法]
     police_stability:
       label: 涉警涉稳类
       weight: 92
-      keywords: [涉警, 警方通报, 执法冲突, 维稳]
+      keywords: [警察打人, 暴力执法, 执法冲突, 涉案警察, 辅警打人, 协警, 警车事故, 派出所, 警民冲突, 袭警, 辱警, 阻碍执法, 假警察, 冒充警察, 警察涉案, 看守所, 在押人员]
     livelihood_sensitive:
       label: 民生敏感类
       weight: 75
-      keywords: [食品, 学校, 医院, 停水, 停电, 物业]
+      keywords: [拆迁, 征地, 强制拆除, 补偿款, 欠薪, 拖欠工资, 农民工讨薪, 物业纠纷, 停水, 停电, 停气, 供暖, 房价, 烂尾楼, 延期交房, 校园安全, 校园霸凌, 欺凌, 体罚, 食堂卫生, 医疗纠纷, 医患冲突, 环境污染, 偷排, 异味, 排放超标, 食品安全, 过期食品, 黑作坊, 养老, 养老院, 疫苗, 学区, 入学难, 强制消费]
     cyber_fraud:
       label: 网络与诈骗专项
       weight: 85
-      keywords: [诈骗, 刷单, 赌博网站, 冒充公检法]
+      keywords: [数据泄露, 信息泄露, 个人信息泄露, 黑客攻击, 网站被黑, 勒索病毒, 系统瘫痪, 宕机, 网络攻击, 钓鱼网站, 撞库, 电信诈骗, 刷单返利, 杀猪盘, 冒充公检法, 虚假投资, 虚假理财, 集资诈骗, 养老诈骗, 冒充客服, 机票退改签诈骗]
     other:
       label: 其他
       weight: 30
@@ -283,6 +284,7 @@ output:
         immediate: false
       archive:
         enabled: false
+        immediate: false
 
 security:
   allow_private_network: false

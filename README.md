@@ -1,12 +1,12 @@
 # 舆情监测系统
 
-本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 0：仓库与设计基线** 阶段，尚未实现生产级采集器，也未启动任何实际爬取任务。
+本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 1：配置、日志与 CLI 基线** 阶段，尚未实现生产级采集器，也未启动任何实际爬取任务。
 
 ## 系统定位
 
 系统规划为五个层次：
 
-1. **采集层**：定时采集热搜、按关键词检索、按已授权账号检索。
+1. **采集层**：定时采集热搜、按关键词检索、按指定账号检索。
 2. **原始数据层**：保存不可变的原始记录、采集状态与任务结果。
 3. **处理层**：清洗、规范化、去重、分类、地域实体提取、评论情感分析与评分。
 4. **结构化层**：生成研判条目、证据包、分项得分、综合得分与预警级别。
@@ -19,18 +19,22 @@
 - [数据模型设计](docs/data-model.md)
 - [评分设计](docs/scoring.md)
 - [MediaCrawler 集成设计](docs/mediacrawler-integration.md)
-- [合规与安全要求](docs/compliance.md)
+- [配置与 CLI 使用说明](docs/configuration.md)
 
 ## 当前状态
 
 已完成：
 
-- 本地 Git 仓库与远端私有仓库基线。
+- 私有 Git 仓库与远端 `main` 基线。
 - Python / uv 项目配置。
-- 基础包入口与最小测试。
-- 示例 YAML 配置。
-- 中文架构、数据流、数据模型、评分、集成与合规文档。
-- `HANDOFF.md` 跨对话交接记录。
+- Pydantic 配置 Schema 与示例配置校验。
+- YAML 重复键检测。
+- `${VAR}` 与 `${VAR:-default}` 环境变量展开。
+- `*_env` 显式环境变量引用检查。
+- `.env` 文件加载与进程内环境优先策略。
+- structlog console / JSON 日志。
+- `validate-config`、`inspect-env`、`show-config` CLI 子命令。
+- 配置、CLI、环境变量与日志测试。
 
 尚未实现：
 
@@ -52,16 +56,18 @@ uv run opinion-monitor --version
 uv run pytest
 ```
 
+常用命令：
+
+```bash
+uv run opinion-monitor validate-config
+uv run opinion-monitor inspect-env
+uv run opinion-monitor show-config --format json
+```
+
 本地测试前先复制环境变量模板：
 
 ```bash
 cp .env.example .env
 ```
 
-配置示例位于 `config/config.example.yaml`。本地私密配置应复制为 `config/config.local.yaml`，该文件已被 Git 忽略。
-
-## 重要范围与合规说明
-
-本系统必须在完成法律与合规审批后才能部署。采集范围必须限于部署方被授权的目的和来源，遵守适用法律与平台条款，控制请求频率，并避免不必要地采集或留存个人信息。
-
-MediaCrawler 上游许可证面向非商业学习用途。政府或生产环境使用前，必须单独完成许可证、平台条款与适用法律审查，并获得必要授权。
+配置示例位于 `config/config.example.yaml`。本地私密配置应复制为 `config/config.local.yaml`，该文件已被 Git 忽略。详细规则见 [配置与 CLI 使用说明](docs/configuration.md)。

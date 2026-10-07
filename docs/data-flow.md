@@ -49,7 +49,7 @@ RawItem(keyword_search)
 ## 指定账号检索流
 
 ```text
-配置的已授权账号
+配置的指定账号
   ↓
 任务构建器
   ↓
