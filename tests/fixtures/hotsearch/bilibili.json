@@ -1,0 +1,11 @@
+{
+  "code": 0,
+  "message": "0",
+  "data": {
+    "result": [
+      {"position": 1, "keyword": "示例B站热搜一", "show_name": "示例B站热搜一", "score": 98765, "uri": "https://example.test/bilibili/1"},
+      {"position": 2, "keyword": "示例B站热搜二", "show_name": "示例B站热搜二", "score": 45678, "uri": "https://example.test/bilibili/2"},
+      {"position": 3, "keyword": "示例B站热搜三", "show_name": "示例B站热搜三", "score": 12345}
+    ]
+  }
+}

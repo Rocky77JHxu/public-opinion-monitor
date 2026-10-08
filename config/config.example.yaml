@@ -28,6 +28,7 @@ hotsearch:
     jitter_max_seconds: 45
     timeout_seconds: 15
     max_retries: 2
+    retry_backoff_seconds: 0.5
 
   platforms:
     weibo:

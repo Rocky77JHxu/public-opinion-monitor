@@ -1,0 +1,11 @@
+{
+  "status_code": 0,
+  "status_msg": "",
+  "data": {
+    "word_list": [
+      {"word": "示例抖音热搜一", "position": 1, "hot_value": 987654, "event_time": 1760000000},
+      {"word": "示例抖音热搜二", "position": 2, "hot_value": 456789, "event_time": 1760000100},
+      {"word": "示例抖音热搜三", "position": 3, "hot_value": 123456, "event_time": 1760000200}
+    ]
+  }
+}

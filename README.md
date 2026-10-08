@@ -1,6 +1,6 @@
 # 舆情监测系统
 
-本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 1：配置、日志与 CLI 基线** 阶段，尚未实现生产级采集器，也未启动任何实际爬取任务。
+本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 2：热搜采集基线** 阶段，尚未接入 MediaCrawler，也未启动常驻爬取任务。
 
 ## 系统定位
 
@@ -20,6 +20,7 @@
 - [评分设计](docs/scoring.md)
 - [MediaCrawler 集成设计](docs/mediacrawler-integration.md)
 - [配置与 CLI 使用说明](docs/configuration.md)
+- [热搜采集设计](docs/hotsearch.md)
 
 ## 当前状态
 
@@ -34,17 +35,22 @@
 - `.env` 文件加载与进程内环境优先策略。
 - structlog console / JSON 日志。
 - `validate-config`、`inspect-env`、`show-config` CLI 子命令。
-- 配置、CLI、环境变量与日志测试。
+- 统一 `RawItem` 领域模型。
+- 微博、百度、知乎、抖音、bilibili 热搜解析器。
+- 热搜 HTTP 客户端、公共地址校验、超时与重试。
+- 单平台失败隔离的采集编排器。
+- `collect-hotsearch` CLI 子命令。
+- 五个平台的合成 fixture 与回归测试。
 
 尚未实现：
 
-- 热搜采集适配器。
+- 常驻调度器。
+- 原始数据持久化。
 - MediaCrawler 集成。
-- 数据库迁移与状态仓储。
+- 清洗与去重。
 - LLM 分析模块。
 - 评分流水线。
 - 钉钉 Webhook 客户端。
-- 生产级调度器。
 
 ## 开发环境
 
@@ -62,6 +68,7 @@ uv run pytest
 uv run opinion-monitor validate-config
 uv run opinion-monitor inspect-env
 uv run opinion-monitor show-config --format json
+uv run opinion-monitor collect-hotsearch --platform weibo
 ```
 
 本地测试前先复制环境变量模板：

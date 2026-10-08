@@ -12,9 +12,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from opinion_monitor.models.enums import HotSearchPlatform
+
 PositiveInt = Annotated[int, Field(ge=1)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 PositiveFloat = Annotated[float, Field(gt=0)]
+NonNegativeFloat = Annotated[float, Field(ge=0)]
 Score = Annotated[float, Field(ge=0, le=100)]
 Probability = Annotated[float, Field(ge=0, le=1)]
 EnvVarName = Annotated[str, Field(pattern=r"^[A-Z_][A-Z0-9_]*$")]
@@ -24,14 +27,6 @@ class StrictModel(BaseModel):
     """禁止未知字段的模型基类。"""
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
-
-
-class HotSearchPlatform(StrEnum):
-    WEIBO = "weibo"
-    BAIDU = "baidu"
-    ZHIHU = "zhihu"
-    DOUYIN = "douyin"
-    BILIBILI = "bilibili"
 
 
 class MediaCrawlerPlatform(StrEnum):
@@ -132,6 +127,7 @@ class HotSearchDefaults(JitterConfig):
     enabled: bool
     timeout_seconds: PositiveFloat
     max_retries: NonNegativeInt
+    retry_backoff_seconds: NonNegativeFloat = 0.5
 
 
 class HotSearchPlatformConfig(StrictModel):

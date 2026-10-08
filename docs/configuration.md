@@ -201,6 +201,7 @@ uv run opinion-monitor --log-level DEBUG --log-format json inspect-env
 - 权重和阈值范围。
 - 评分权重总和必须为 1。
 - 预警阈值必须满足 `archive < blue < orange < red`。
+- 热搜 HTTP 重试次数与等待时间。
 - 情感类别与权重键完全一致。
 - 平台列表重复项。
 - 关键词空值与重复项。

@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 1 已完成配置模型、环境变量展开、日志与 CLI 基线；下一阶段进入热搜采集适配器，仍不启动生产爬取。
+建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 2 已完成统一原始条目、热搜 HTTP 客户端、五个平台解析器、失败隔离编排器与 CLI；尚未执行真实平台探针，也未启动常驻采集。
 
 ## 更新时间
 
@@ -15,7 +15,8 @@
 - 本地与远端主分支均为 `main`。
 - 原英文基线提交已从 `main` 历史中回撤。
 - 当前基线为无旧历史的中文提交。
-- Phase 1 完成后待提交并推送。
+- Phase 1 已提交推送，提交为 `76da3d9`。
+- Phase 2 变更已完成并待验证后提交。
 
 ## 已完成工作
 
@@ -78,6 +79,48 @@
 - 添加中文项目文档与交接文档。
 - 完成中文文档重建、验证、重新提交与远端历史替换。
 
+### Phase 2 实现
+
+- 新增 `opinion_monitor.models.enums`：
+  - `HotSearchPlatform`
+  - `SourceType`
+- 新增 `opinion_monitor.models.raw.RawItem`：
+  - 统一内部原始条目边界。
+  - 当前支持 `hotsearch`。
+  - 预留 `keyword_search` 与 `account`。
+  - 时间字段强制带时区。
+  - URL、排名、热度与 engagement 字段带范围校验。
+- 新增 `opinion_monitor.collectors.interfaces`：
+  - `HotSearchDocument`
+  - `HotSearchParser`
+  - `HotSearchParseError`
+- 新增五个平台解析器：
+  - 微博 HTML。
+  - 百度 HTML。
+  - 知乎 `js-initialData`。
+  - 抖音 JSON。
+  - bilibili JSON。
+- 新增 `HotSearchHTTPClient`：
+  - 配置化请求头。
+  - 超时。
+  - 重试。
+  - 跳转跟随。
+  - 公共 URL / SSRF 防护。
+  - 根据 `security.allow_private_network` 控制内网地址策略。
+  - 响应元信息保留。
+- 新增 `HotSearchCollector`：
+  - 顺序采集平台。
+  - 单平台失败不影响后续平台。
+  - 输出平台 outcome 与统一 items。
+- 扩展 CLI：
+  - `collect-hotsearch`
+  - `--platform`
+  - `--limit`
+  - `--fail-on-error`
+- 新增五个平台合成 fixture。
+- 新增热搜采集中文文档 `docs/hotsearch.md`。
+- 配置新增 `hotsearch.defaults.retry_backoff_seconds`。
+
 ### Phase 1 实现
 
 - 新增 `opinion_monitor.config.schema`：
@@ -124,6 +167,12 @@ uv run mypy src tests
 - Ruff：`All checks passed!`
 - Mypy：`Success: no issues found in 11 source files`
 
+Phase 2 验证结果：
+
+- 测试：`33 passed`
+- Ruff：`All checks passed!`
+- Mypy：`Success: no issues found in 22 source files`
+
 以上结果为 Phase 1 中文基线后的完整验证结果。
 
 ## 当前阻塞点
@@ -136,16 +185,16 @@ uv run mypy src tests
 
 ## 紧接着的后续步骤
 
-1. 提交并推送 Phase 1。
-2. 进入 Phase 2：实现热搜 HTTP Client、平台解析器、统一 RawItem 模型与脱敏 fixture。
-3. 做只读热搜接口探针并保存脱敏 fixture。
+1. 提交并推送 Phase 2。
+2. 执行只读真实热搜接口探针，并保存脱敏 fixture。
+3. 进入 Phase 3：MediaCrawler 任务构建、执行、结果加载与平台映射。
 4. 用无敏感测试 Payload 验证钉钉自动化 Webhook。
 5. 在合规审查通过后再固定引入 MediaCrawler。
 
 ## 阶段实施计划
 
 1. **Phase 1**：配置模型、环境变量展开、日志与 CLI。已完成。
-2. **Phase 2**：热搜采集器与解析 fixture。
+2. **Phase 2**：热搜采集器与解析 fixture。核心实现已完成，真实接口探针未执行。
 3. **Phase 3**：MediaCrawler 任务构建、执行、结果加载与平台映射。
 4. **Phase 4**：清洗、日期过滤、URL / 内容去重与状态仓储。
 5. **Phase 5**：OpenAI 兼容客户端与受控 JSON 分析。

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -12,6 +13,7 @@ import structlog
 import yaml
 
 from opinion_monitor import __version__
+from opinion_monitor.collectors.hotsearch import HotSearchCollector
 from opinion_monitor.config import (
     ConfigError,
     build_environment,
@@ -22,6 +24,7 @@ from opinion_monitor.config import (
     redact_sensitive_values,
 )
 from opinion_monitor.config.schema import RootConfig
+from opinion_monitor.models import HotSearchPlatform
 from opinion_monitor.observability import configure_logging
 
 DEFAULT_CONFIG_PATH = Path("config/config.example.yaml")
@@ -89,6 +92,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect_env.set_defaults(handler=run_inspect_env)
 
+    collect_hotsearch = subparsers.add_parser(
+        "collect-hotsearch",
+        help="采集已启用的热搜平台并输出结构化 JSON",
+    )
+    collect_hotsearch.add_argument(
+        "--platform",
+        action="append",
+        choices=[platform.value for platform in HotSearchPlatform],
+        help="只采集指定平台；可重复传入。默认采集全部已启用平台",
+    )
+    collect_hotsearch.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="每个平台最多输出的条目数",
+    )
+    collect_hotsearch.add_argument(
+        "--fail-on-error",
+        action="store_true",
+        help="任一平台失败时返回非零退出码；默认仅在全部失败时返回非零",
+    )
+    collect_hotsearch.set_defaults(handler=run_collect_hotsearch)
+
     return parser
 
 
@@ -148,6 +174,46 @@ def run_inspect_env(args: argparse.Namespace) -> int:
         "missing": references,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_collect_hotsearch(args: argparse.Namespace) -> int:
+    _environment, config = _environment_and_config(args)
+    platforms = (
+        [HotSearchPlatform(platform) for platform in args.platform] if args.platform else None
+    )
+    result = asyncio.run(
+        HotSearchCollector(
+            config.hotsearch,
+            allow_private_network=config.security.allow_private_network,
+        ).collect(platforms)
+    )
+
+    if args.limit is not None and args.limit >= 0:
+        grouped: dict[HotSearchPlatform, list[int]] = {}
+        for index, item in enumerate(result.items):
+            grouped.setdefault(item.platform, []).append(index)
+        keep: set[int] = set()
+        for indexes in grouped.values():
+            keep.update(indexes[: args.limit])
+        result = result.model_copy(
+            update={
+                "items": [item for index, item in enumerate(result.items) if index in keep],
+                "outcomes": [
+                    outcome.model_copy(update={"item_count": min(outcome.item_count, args.limit)})
+                    if outcome.success
+                    else outcome
+                    for outcome in result.outcomes
+                ],
+            }
+        )
+
+    print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
+
+    successful = any(outcome.success for outcome in result.outcomes)
+    has_failure = any(not outcome.success and outcome.enabled for outcome in result.outcomes)
+    if not successful or (args.fail_on_error and has_failure):
+        return 2
     return 0
 
 
