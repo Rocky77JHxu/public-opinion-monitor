@@ -517,7 +517,11 @@ def run_preview_llm_analysis(args: argparse.Namespace) -> int:
     if not items:
         print(json.dumps({"items": []}, ensure_ascii=False))
         return 0
-    service = LLMAnalysisService(config.llm, env={})
+    service = LLMAnalysisService(
+        config.llm,
+        env={},
+        sentiment_categories=config.sentiment.categories,
+    )
     previews = []
     for item in items:
         comments = storage.list_comments_for_clean_item(item.id)
@@ -543,7 +547,11 @@ def run_llm_analysis(args: argparse.Namespace) -> int:
     if not items:
         print(json.dumps({"items": []}, ensure_ascii=False))
         return 0
-    service = LLMAnalysisService(config.llm, env=environment)
+    service = LLMAnalysisService(
+        config.llm,
+        env=environment,
+        sentiment_categories=config.sentiment.categories,
+    )
     output: list[dict[str, Any]] = []
     failed = False
     for item in items:

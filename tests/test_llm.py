@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -8,7 +9,15 @@ import httpx
 import pytest
 
 from opinion_monitor.config import load_config
-from opinion_monitor.llm import LLMClient, extract_json_content, load_prompt, render_prompt
+from opinion_monitor.llm import (
+    LLMClient,
+    LLMError,
+    build_response_schema,
+    extract_json_content,
+    extract_response_text,
+    load_prompt,
+    render_prompt,
+)
 from opinion_monitor.llm.service import LLMAnalysisService
 from opinion_monitor.models import (
     AlertCategory,
@@ -27,6 +36,12 @@ ENV = {
     "OPENAI_BASE_URL": "https://llm.example.test/v1",
     "OPENAI_API_KEY": "test-key",
     "OPENAI_MODEL": "test-model",
+}
+STRICT_SCHEMA = {
+    "type": "object",
+    "properties": {"ok": {"type": "boolean"}},
+    "required": ["ok"],
+    "additionalProperties": False,
 }
 
 
@@ -60,10 +75,16 @@ async def test_llm_client_retries_and_parses_response() -> None:
         return httpx.Response(
             200,
             json={
-                "choices": [{"message": {"content": '```json\n{"ok": true}\n```'}}],
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": '```json\n{"ok": true}\n```'}],
+                    }
+                ],
                 "usage": {
-                    "prompt_tokens": 10,
-                    "completion_tokens": 5,
+                    "input_tokens": 10,
+                    "output_tokens": 5,
                     "total_tokens": 15,
                 },
             },
@@ -81,14 +102,134 @@ async def test_llm_client_retries_and_parses_response() -> None:
     output, usage = await client.chat_json(
         system_prompt="system",
         user_prompt="user",
+        schema_name="test_output",
+        response_schema=STRICT_SCHEMA,
     )
 
     assert output == {"ok": True}
     assert usage.total_tokens == 15
     assert len(calls) == 2
     assert calls[0].headers["Authorization"] == "Bearer test-key"
-    assert b"json_object" in calls[0].read()
+    request_body = json.loads(calls[0].read())
+    output_format = request_body["text"]["format"]
+    assert str(calls[0].url) == "https://llm.example.test/v1/responses"
+    assert output_format == {
+        "type": "json_schema",
+        "name": "test_output",
+        "strict": True,
+        "schema": STRICT_SCHEMA,
+    }
+    assert request_body["max_output_tokens"] == CONFIG.llm.max_output_tokens
+    assert usage.prompt_tokens == 10
+    assert usage.completion_tokens == 5
     assert sleeps == [0.1]
+
+
+async def test_llm_client_uses_json_object_fallback() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"status": "completed", "output_text": '{"ok": true}'},
+        )
+
+    client = LLMClient(
+        CONFIG.llm.model_copy(update={"enable_structured_output": False}),
+        env=ENV,
+        transport=httpx.MockTransport(handler),
+    )
+    output, _usage = await client.chat_json(
+        system_prompt="system",
+        user_prompt="user",
+        schema_name="test_output",
+        response_schema=STRICT_SCHEMA,
+    )
+
+    assert output == {"ok": True}
+    assert json.loads(requests[0].read())["text"]["format"] == {"type": "json_object"}
+
+
+@pytest.mark.parametrize(
+    ("document", "message"),
+    [
+        (
+            {
+                "status": "completed",
+                "output": [{"type": "refusal", "refusal": "policy"}],
+            },
+            "模型拒绝响应：policy",
+        ),
+        (
+            {
+                "status": "incomplete",
+                "incomplete_details": {"reason": "max_output_tokens"},
+            },
+            "模型响应未完成：max_output_tokens",
+        ),
+        ({"status": "failed"}, "模型响应状态异常：failed"),
+        ({"status": "completed", "output": []}, "模型响应缺少 output_text"),
+    ],
+)
+def test_extract_response_text_rejects_unavailable_output(
+    document: dict[str, Any],
+    message: str,
+) -> None:
+    with pytest.raises(LLMError, match=message):
+        extract_response_text(document)
+
+
+def test_extract_response_text_prefers_convenience_output_text() -> None:
+    assert extract_response_text({"status": "completed", "output_text": "文本"}) == "文本"
+
+
+async def test_llm_client_rejects_invalid_strict_schema_before_request() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("无效 Schema 不应发起请求")
+
+    client = LLMClient(
+        CONFIG.llm,
+        env=ENV,
+        transport=httpx.MockTransport(handler),
+    )
+    invalid_schema = {
+        "type": "object",
+        "properties": {"ok": {"type": "boolean"}},
+        "required": [],
+        "additionalProperties": False,
+    }
+
+    with pytest.raises(LLMError, match="required 必须覆盖"):
+        await client.chat_json(
+            system_prompt="system",
+            user_prompt="user",
+            schema_name="test-output",
+            response_schema=invalid_schema,
+        )
+
+    nested_invalid_schema = {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string"}},
+                    "required": ["value"],
+                },
+            }
+        },
+        "required": ["items"],
+        "additionalProperties": False,
+    }
+    with pytest.raises(LLMError, match="对象必须设置 additionalProperties=false"):
+        await client.chat_json(
+            system_prompt="system",
+            user_prompt="user",
+            schema_name="test-output",
+            response_schema=nested_invalid_schema,
+        )
 
 
 def _clean_item() -> Any:
@@ -127,8 +268,16 @@ def _comment(item: Any, content: str = "希望人员平安") -> CommentRecord:
 class FakeClient:
     model = "fake-model"
 
-    async def chat_json(self, *, system_prompt: str, user_prompt: str) -> tuple[Any, LLMUsage]:
-        if "属性分类" in system_prompt:
+    async def chat_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        schema_name: str,
+        response_schema: dict[str, Any],
+    ) -> tuple[Any, LLMUsage]:
+        assert response_schema["type"] == "object"
+        if schema_name == "classification":
             return (
                 {
                     "category": "sudden_event",
@@ -137,7 +286,7 @@ class FakeClient:
                 },
                 LLMUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
             )
-        if "地域实体" in system_prompt:
+        if schema_name == "geo_extraction":
             return (
                 {
                     "geo_evidence": [
@@ -152,7 +301,7 @@ class FakeClient:
                 },
                 LLMUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
             )
-        if "风险研判" in system_prompt:
+        if schema_name == "risk_assessment":
             return (
                 {
                     "risk_score": 88.0,
@@ -164,10 +313,13 @@ class FakeClient:
                 },
                 LLMUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
             )
-        if "评论情感" in system_prompt:
+        if schema_name == "sentiment_analysis":
             return (
                 {
-                    "distribution": {"anxious": 1.0},
+                    "distribution": {
+                        category: 1.0 if category == "anxious" else 0.0
+                        for category in CONFIG.sentiment.categories
+                    },
                     "dominant_sentiment": "anxious",
                     "negative_ratio": 1.0,
                     "anger_ratio": 0.0,
@@ -179,13 +331,51 @@ class FakeClient:
                 },
                 LLMUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
             )
-        raise AssertionError(f"未知 Prompt：{system_prompt}")
+        raise AssertionError(f"未知结构化输出任务：{schema_name}")
+
+
+def _service(client: FakeClient | None = None) -> LLMAnalysisService:
+    return LLMAnalysisService(
+        CONFIG.llm,
+        env=ENV,
+        client=client or FakeClient(),
+        sentiment_categories=CONFIG.sentiment.categories,
+    )
+
+
+@pytest.mark.parametrize(
+    "task",
+    ["classification", "geo_extraction", "sentiment_analysis", "risk_assessment"],
+)
+def test_llm_response_schemas_follow_structured_output_rules(task: str) -> None:
+    schema = build_response_schema(
+        task,
+        sentiment_categories=CONFIG.sentiment.categories,
+    )
+
+    def check_object(node: dict[str, Any]) -> None:
+        assert node["type"] == "object"
+        assert node["additionalProperties"] is False
+        assert set(node["properties"]) == set(node["required"])
+        for child in node["properties"].values():
+            if child.get("type") == "object":
+                check_object(child)
+
+    check_object(schema)
+
+
+def test_response_schema_is_isolated_between_calls() -> None:
+    first = build_response_schema("classification")
+    first["properties"]["category"]["enum"].append("invalid")
+
+    second = build_response_schema("classification")
+    assert "invalid" not in second["properties"]["category"]["enum"]
 
 
 async def test_llm_analysis_service_preview_and_execute() -> None:
     item = _clean_item()
     comments = [_comment(item, "希望人员平安"), _comment(item, "一定要平安")]
-    service = LLMAnalysisService(CONFIG.llm, env=ENV, client=FakeClient())
+    service = _service()
 
     preview = service.preview(item, comments)
     assert [request.task for request in preview] == [
@@ -214,7 +404,7 @@ async def test_llm_analysis_service_preview_and_execute() -> None:
 
 async def test_llm_analysis_service_without_comments_skips_sentiment_call() -> None:
     item = _clean_item()
-    service = LLMAnalysisService(CONFIG.llm, env=ENV, client=FakeClient())
+    service = _service()
     run = await service.analyze(item, [], execute=True)
 
     assert run.audit is not None
@@ -229,16 +419,25 @@ async def test_llm_analysis_service_records_validation_failure() -> None:
     item = _clean_item()
 
     class InvalidClient(FakeClient):
-        async def chat_json(self, *, system_prompt: str, user_prompt: str) -> tuple[Any, LLMUsage]:
+        async def chat_json(
+            self,
+            *,
+            system_prompt: str,
+            user_prompt: str,
+            schema_name: str,
+            response_schema: dict[str, Any],
+        ) -> tuple[Any, LLMUsage]:
             output, usage = await super().chat_json(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                schema_name=schema_name,
+                response_schema=response_schema,
             )
-            if "属性分类" in system_prompt:
+            if schema_name == "classification":
                 output["category"] = "invalid-category"
             return output, usage
 
-    service = LLMAnalysisService(CONFIG.llm, env=ENV, client=InvalidClient())
+    service = _service(client=InvalidClient())
     run = await service.analyze(item, [], execute=True)
 
     assert run.audit is not None
@@ -356,4 +555,11 @@ def test_cli_previews_llm_analysis_without_model_call(
         "classification",
         "geo_extraction",
         "risk_assessment",
+    ]
+    assert payload["items"][0]["prompts"][0]["schema_name"] == "classification"
+    assert payload["items"][0]["prompts"][0]["response_schema"]["additionalProperties"] is False
+    assert payload["items"][0]["prompts"][0]["response_schema"]["required"] == [
+        "category",
+        "confidence",
+        "reason",
     ]

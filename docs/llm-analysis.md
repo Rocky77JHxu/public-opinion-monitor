@@ -11,9 +11,9 @@ CleanItem
   ↓
 版本化 Prompt
   ↓
-OpenAI-compatible Chat Completions
+OpenAI-compatible Responses API
   ↓
-结构化 JSON
+严格 JSON Schema 结构化输出
   ↓
 Pydantic Schema 校验
   ↓
@@ -36,6 +36,8 @@ LLMAnalysisResult
 - 评论按 CleanItem 聚合。
 - 无评论时跳过情感模型调用。
 - 默认只预览，不调用模型。
+- 每个任务使用独立严格 JSON Schema。
+- 模型未完成、拒答或缺少输出文本时显式失败。
 
 尚未实现：
 
@@ -124,31 +126,87 @@ API Key 只从环境变量读取，不写入 YAML，不进入日志。
 
 ## 模型调用
 
-当前使用 OpenAI-compatible Chat Completions：
+当前使用 OpenAI-compatible Responses API：
 
 ```text
-POST {OPENAI_BASE_URL}/chat/completions
+POST {OPENAI_BASE_URL}/responses
 ```
 
 特性：
 
 - `Authorization: Bearer <API_KEY>`。
 - 可配置 temperature。
-- 可配置 max tokens。
+- 可配置 `max_output_tokens`。
 - 可配置超时。
 - 408 / 425 / 429 / 5xx / 传输错误重试。
 - 重试次数由 `llm.max_retries` 控制。
-- 支持结构化输出：
+- `llm.enable_structured_output: true` 时使用 Structured Outputs：
 
 ```json
 {
-  "response_format": {
-    "type": "json_object"
+  "text": {
+    "format": {
+      "type": "json_schema",
+      "name": "classification",
+      "strict": true,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string" },
+          "confidence": { "type": "number" },
+          "reason": { "type": "string" }
+        },
+        "required": ["category", "confidence", "reason"],
+        "additionalProperties": false
+      }
+    }
   }
 }
 ```
 
-模型输出即使被 Markdown 代码块包裹，也会先剥离代码块再解析 JSON。
+严格 Schema 会在请求前递归检查：
+
+- 根节点是 `object`。
+- 所有对象设置 `additionalProperties: false`。
+- 所有对象字段同时进入 `required`。
+- 可空字段使用 `["string", "null"]`。
+- 数组元素具有明确的 `items` 类型。
+
+客户端会从 `output[].content[].output_text` 提取文本，并兼容 SDK 风格的顶层 `output_text`。以下情况会被视为显式失败：
+
+- `status` 不是 `completed`。
+- `status=incomplete` 时读取 `incomplete_details.reason`。
+- 输出中出现 `refusal`。
+- 响应缺少输出文本。
+- 输出不是有效 JSON。
+
+Token 用量优先读取 Responses API 的 `input_tokens` / `output_tokens` / `total_tokens`，并兼容 Chat Completions 的旧字段名。
+
+当 `llm.enable_structured_output: false` 时，客户端退回 `json_object` 格式，仅作为兼容开关；该模式不具备 JSON Schema 级稳定性。
+
+## Structured Outputs Schema
+
+Schema 生成逻辑位于：
+
+```text
+src/opinion_monitor/llm/schemas.py
+```
+
+四类任务均有独立 Schema：
+
+```text
+classification
+geo_extraction
+sentiment_analysis
+risk_assessment
+```
+
+情感分析会根据 `sentiment.categories` 动态生成：
+
+- `distribution` 的全部键。
+- `dominant_sentiment` 的枚举。
+
+因此修改情感类别配置后，无需手工维护另一份 Schema。`preview-llm-analysis` 输出的 `response_schema` 可直接审查实际发送给模型的约束。
 
 ## Prompt 管理
 
@@ -361,6 +419,7 @@ CleanItem: d87eb408-7518-53b6-9555-fa0d87ddd097
 | classification | `4e6b46fe6969` |
 | geo_extraction | `27b881c82c4e` |
 | risk_assessment | `d2b7d4a50d32` |
-| sentiment_analysis | `7e0075bbd558` |
+| sentiment_analysis | `717b0cc54c82` |
 
 该预览没有调用外部模型，也没有消耗 Token。
+2026-10-09 的结构化输出增强再次预览成功，确认输出包含四个任务的严格响应 Schema。

@@ -1,6 +1,6 @@
 # 舆情监测系统
 
-本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 5：LLM 分析基线** 阶段。MediaCrawler 已固定接入，SQLite 原始层 / 评论证据 / 清洗层已实现，LLM 客户端、版本化 Prompt、结构化输出校验、地域提取、情感分析与风险建议基线已可用；未启动常驻爬取任务。
+本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 5：LLM 分析基线** 阶段。MediaCrawler 已固定接入，SQLite 原始层 / 评论证据 / 清洗层已实现，LLM Responses API 客户端、严格 JSON Schema、版本化 Prompt、结构化输出校验、地域提取、情感分析与风险建议基线已可用；未启动常驻爬取任务。
 
 ## 系统定位
 
@@ -49,7 +49,7 @@
 - SQLite 原始层、评论证据与清洗层持久化。
 - 日期过滤、URL 规范化、URL 去重与 SimHash 文本去重。
 - `init-db`、`ingest-mediacrawler-task`、`process-pending` CLI。
-- OpenAI-compatible LLM 客户端与结构化 JSON 解析。
+- OpenAI-compatible Responses API 客户端与 Structured Outputs 严格 JSON 解析。
 - 预警分类、地域实体、评论情感与风险建议 Prompt。
 - LLM 调用审计与结果入库。
 - `preview-llm-analysis`、`run-llm-analysis` CLI。

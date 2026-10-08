@@ -85,6 +85,8 @@ class LLMPromptRequest(BaseModel):
     prompt_version: str
     system_prompt: str
     user_payload: dict[str, Any]
+    schema_name: str
+    response_schema: dict[str, Any]
     expected_keys: list[str]
 
 

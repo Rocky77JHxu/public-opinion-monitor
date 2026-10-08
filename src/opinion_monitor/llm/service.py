@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from opinion_monitor.config.schema import LLMConfig
 from opinion_monitor.llm.client import LLMClient
 from opinion_monitor.llm.prompts import load_prompt, render_prompt, system_section
+from opinion_monitor.llm.schemas import build_response_schema
 from opinion_monitor.models import (
     AlertCategory,
     CleanItem,
@@ -38,6 +39,8 @@ class LLMChatClient(Protocol):
         *,
         system_prompt: str,
         user_prompt: str,
+        schema_name: str,
+        response_schema: dict[str, Any],
     ) -> tuple[Any, LLMUsage]:
         """调用模型并返回结构化 JSON 与用量。"""
         ...
@@ -52,6 +55,7 @@ class LLMAnalysisService:
         *,
         env: Mapping[str, str],
         client: LLMChatClient | None = None,
+        sentiment_categories: Sequence[str],
         clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         self._config = config
@@ -59,6 +63,7 @@ class LLMAnalysisService:
         self._provided_client = client
         self._client: LLMChatClient | None = client
         self._clock = clock
+        self._sentiment_categories = list(sentiment_categories)
 
     def _get_client(self) -> LLMChatClient:
         if self._client is None:
@@ -160,11 +165,17 @@ class LLMAnalysisService:
         requests: list[tuple[str, LLMPromptRequest, dict[str, Any]]] = []
         for task, name, payload, expected_keys in definitions:
             template, version = load_prompt(self._config, name)
+            response_schema = build_response_schema(
+                task,
+                sentiment_categories=self._sentiment_categories,
+            )
             request = LLMPromptRequest(
                 task=task,
                 prompt_version=version,
                 system_prompt=system_section(template),
                 user_payload=payload,
+                schema_name=task,
+                response_schema=response_schema,
                 expected_keys=expected_keys,
             )
             requests.append((name, request, payload))
@@ -236,6 +247,8 @@ class LLMAnalysisService:
                 output, usage = await client.chat_json(
                     system_prompt=request.system_prompt,
                     user_prompt=user_prompt,
+                    schema_name=request.schema_name,
+                    response_schema=request.response_schema,
                 )
                 attempts += 1
                 if usage.prompt_tokens or usage.completion_tokens or usage.total_tokens:

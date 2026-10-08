@@ -156,6 +156,7 @@ llm:
   base_url_env: OPENAI_BASE_URL
   api_key_env: OPENAI_API_KEY
   model_env: OPENAI_MODEL
+  enable_structured_output: true
   max_input_comments: 100
 ```
 
@@ -165,7 +166,9 @@ llm:
 uv run opinion-monitor preview-llm-analysis
 ```
 
-该命令只构建 Prompt，不调用模型。只有在 `run-llm-analysis` 上显式追加 `--execute` 才会请求 OpenAI-compatible 接口。
+该命令只构建 Prompt 与响应 Schema，不调用模型。只有在 `run-llm-analysis` 上显式追加 `--execute` 才会请求 OpenAI-compatible Responses API。
+
+`enable_structured_output: true` 是推荐值，会发送 `text.format.type=json_schema` 与 `strict=true`。`false` 只用于兼容不支持 Structured Outputs 的服务，退回 `json_object`。
 
 ## MediaCrawler 安全开关
 
