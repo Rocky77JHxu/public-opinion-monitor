@@ -119,9 +119,10 @@ mediacrawler:
   enable_sub_comments: false
   max_concurrency: 1
   max_sleep_seconds: 2
-  allow_execution: false
-  license_accepted: false
-  pinned_ref: ""
+  allow_execution: true
+  pinned_ref: "098cae5a00023ad55f00ca9665d22d0f260e2ab2"
+  headless: false
+  save_login_state: true
   task_timeout_seconds: 1800
   command_name: uv
   entrypoint: main.py

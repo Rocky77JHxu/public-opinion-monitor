@@ -15,9 +15,12 @@ import yaml
 from opinion_monitor import __version__
 from opinion_monitor.collectors.hotsearch import HotSearchCollector
 from opinion_monitor.collectors.mediacrawler import (
+    MediaCrawlerIntegrationService,
     MediaCrawlerLoadContext,
     MediaCrawlerRunner,
+    build_account_task,
     build_account_tasks,
+    build_keyword_task,
     build_keyword_tasks,
     load_jsonl,
 )
@@ -172,6 +175,43 @@ def build_parser() -> argparse.ArgumentParser:
     load_mediacrawler.add_argument("--limit", type=int, default=None)
     load_mediacrawler.set_defaults(handler=run_load_mediacrawler)
 
+    run_media_parser = subparsers.add_parser(
+        "run-mediacrawler",
+        help="构建并执行单个 MediaCrawler 任务；默认仅输出计划",
+    )
+    run_media_parser.add_argument(
+        "--source",
+        choices=["keyword", "account"],
+        required=True,
+        help="任务来源",
+    )
+    run_media_parser.add_argument(
+        "--platform",
+        choices=[platform.value for platform in MediaCrawlerPlatform],
+        help="关键词任务平台",
+    )
+    run_media_parser.add_argument("--keyword", help="关键词")
+    run_media_parser.add_argument(
+        "--keyword-level",
+        type=int,
+        default=1,
+        help="关键词层级",
+    )
+    run_media_parser.add_argument("--max-items", type=int, default=None, help="最大条目数")
+    run_media_parser.add_argument("--account-config-id", help="账号配置 ID")
+    run_media_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="每个 JSONL 文件最多加载条数",
+    )
+    run_media_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="显式执行任务；未传时只生成计划",
+    )
+    run_media_parser.set_defaults(handler=run_mediacrawler)
+
     return parser
 
 
@@ -317,6 +357,39 @@ def run_load_mediacrawler(args: argparse.Namespace) -> int:
     result = load_jsonl(args.path, context, limit=args.limit)
     print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
     return 0 if result.loaded_count > 0 else 2
+
+
+def run_mediacrawler(args: argparse.Namespace) -> int:
+    _environment, config = _environment_and_config(args)
+
+    if args.source == "keyword":
+        if not args.platform:
+            raise ConfigError("关键词任务必须提供 --platform")
+        if not args.keyword:
+            raise ConfigError("关键词任务必须提供 --keyword")
+        task = build_keyword_task(
+            config,
+            platform=MediaCrawlerPlatform(args.platform),
+            keyword=args.keyword,
+            keyword_level=args.keyword_level,
+            max_items=args.max_items,
+        )
+    else:
+        if not args.account_config_id:
+            raise ConfigError("指定账号任务必须提供 --account-config-id")
+        task = build_account_task(config, args.account_config_id)
+
+    result = asyncio.run(
+        MediaCrawlerIntegrationService(config.mediacrawler).run(
+            task,
+            execute=args.execute,
+            limit=args.limit,
+        )
+    )
+    print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
+    if args.execute and result.run.status.value != "succeeded":
+        return 2
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:

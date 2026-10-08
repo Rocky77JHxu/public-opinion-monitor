@@ -38,6 +38,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = ["third_party"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "S", "ASYNC"]
@@ -50,3 +51,4 @@ testpaths = ["tests"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
+exclude = ["third_party/"]

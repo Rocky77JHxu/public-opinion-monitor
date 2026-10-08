@@ -44,7 +44,7 @@ def test_cli_plans_mediacrawler_without_execution(
     payload = json.loads(capsys.readouterr().out)
     assert result == 0
     assert payload["task_count"] == 1
-    assert payload["allow_execution"] is False
+    assert payload["allow_execution"] is True
     assert payload["tasks"][0]["task"]["task_id"] == str(TASK_ID)
     assert "--keywords" in payload["tasks"][0]["command"]["argv"]
 
@@ -89,3 +89,27 @@ def test_discovers_jsonl_files_newest_first(tmp_path: Path) -> None:
     from opinion_monitor.collectors.mediacrawler import discover_jsonl_files
 
     assert discover_jsonl_files(tmp_path) == [new, old]
+
+
+def test_cli_run_mediacrawler_defaults_to_plan_only(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result = main(
+        [
+            "--log-format",
+            "json",
+            "run-mediacrawler",
+            "--source",
+            "keyword",
+            "--platform",
+            "xhs",
+            "--keyword",
+            "示例关键词",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert result == 0
+    assert payload["task"]["source_type"] == "keyword_search"
+    assert payload["run"]["status"] == "skipped"
+    assert payload["items"] == []

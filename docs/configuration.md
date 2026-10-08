@@ -149,25 +149,15 @@ uv run opinion-monitor show-config --format yaml
 
 ## MediaCrawler 安全开关
 
-示例配置默认只生成任务与命令计划，不执行采集：
-
-```yaml
-mediacrawler:
-  allow_execution: false
-  license_accepted: false
-  pinned_ref: ""
-```
-
-若要在受控部署中执行，必须同时配置：
+MediaCrawler 使用许可已确认。示例配置允许显式执行，但仍要求 CLI 传入 `--execute`：
 
 ```yaml
 mediacrawler:
   allow_execution: true
-  license_accepted: true
-  pinned_ref: "40位小写git-commit-sha"
+  pinned_ref: "098cae5a00023ad55f00ca9665d22d0f260e2ab2"
 ```
 
-即使开关打开，Runner 也会校验 `third_party/MediaCrawler` 的实际 `HEAD` 与 `pinned_ref` 是否一致。版本不匹配时拒绝执行。
+Runner 会校验 `third_party/MediaCrawler` 的实际 `HEAD` 与 `pinned_ref` 是否一致。版本不匹配时拒绝执行。
 
 ## 日志
 

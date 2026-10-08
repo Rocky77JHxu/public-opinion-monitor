@@ -7,6 +7,7 @@ from opinion_monitor.collectors.mediacrawler import (
     build_account_tasks,
     build_keyword_tasks,
 )
+from opinion_monitor.collectors.mediacrawler.models import MediaCrawlerTask
 from opinion_monitor.config import load_config
 from opinion_monitor.config.schema import AccountConfig, RootConfig
 from opinion_monitor.models import MediaCrawlerPlatform
@@ -65,13 +66,12 @@ async def test_builds_enabled_account_task() -> None:
 
 async def test_runner_skips_execution_by_default() -> None:
     config = base_config()
-    assert config.mediacrawler.allow_execution is False
     config.keyword_search.levels["level_1"].platforms = [MediaCrawlerPlatform.XHS]
     config.keyword_search.levels["level_1"].keywords = ["示例关键词"]
     task = build_keyword_tasks(config)[0]
     runner = MediaCrawlerRunner(config.mediacrawler)
 
-    result = await runner.run(task)
+    result = await runner.run(task, execute=False)
 
     assert result.status == "skipped"
     assert result.return_code is None
@@ -86,10 +86,9 @@ async def test_runner_builds_isolated_argv_without_shell() -> None:
 
     plan = MediaCrawlerRunner(config.mediacrawler).build_plan(task)
 
-    assert plan.argv == [
-        "uv",
-        "run",
-        "main.py",
+    assert plan.argv[:3] == ["uv", "run", "python"]
+    assert Path(plan.argv[3]).name == "upstream_entry.py"
+    assert plan.argv[4:] == [
         "--platform",
         "bili",
         "--lt",
@@ -103,6 +102,8 @@ async def test_runner_builds_isolated_argv_without_shell() -> None:
         "--get_sub_comment",
         "false",
         "--get_media",
+        "false",
+        "--headless",
         "false",
         "--save_data_option",
         "jsonl",
@@ -125,7 +126,6 @@ async def test_runner_uses_injected_executor_when_explicitly_allowed() -> None:
     config = base_config()
     config.keyword_search.levels["level_1"].platforms = [MediaCrawlerPlatform.XHS]
     config.keyword_search.levels["level_1"].keywords = ["示例关键词"]
-    config.mediacrawler.license_accepted = True
     config.mediacrawler.pinned_ref = "a" * 40
     task = build_keyword_tasks(config)[0]
 
@@ -141,15 +141,62 @@ async def test_runner_uses_injected_executor_when_explicitly_allowed() -> None:
     assert result.return_code == 0
 
 
-async def test_execution_requires_license_and_pinned_ref() -> None:
+async def test_execution_requires_pinned_ref() -> None:
     config = base_config()
-    config.mediacrawler.license_accepted = False
-    config.mediacrawler.pinned_ref = ""
     config.keyword_search.levels["level_1"].platforms = [MediaCrawlerPlatform.XHS]
     config.keyword_search.levels["level_1"].keywords = ["示例关键词"]
     task = build_keyword_tasks(config)[0]
+    invalid_media_config = config.mediacrawler.model_copy(update={"pinned_ref": ""})
 
-    result = await MediaCrawlerRunner(config.mediacrawler).run(task, execute=True)
+    result = await MediaCrawlerRunner(invalid_media_config).run(task, execute=True)
 
     assert result.status == "failed"
-    assert "license_accepted 或 pinned_ref" in (result.error or "")
+    assert "pinned_ref" in (result.error or "")
+
+
+async def test_integration_service_loads_discovered_jsonl_after_success(
+    tmp_path: Path,
+) -> None:
+    from opinion_monitor.collectors.mediacrawler import (
+        MediaCrawlerIntegrationService,
+        MediaCrawlerRunner,
+        MediaCrawlerRunResult,
+        MediaCrawlerRunStatus,
+    )
+    from opinion_monitor.models import utc_now
+
+    config = base_config()
+    config.keyword_search.levels["level_1"].platforms = [MediaCrawlerPlatform.XHS]
+    config.keyword_search.levels["level_1"].keywords = ["示例关键词"]
+    original_task = build_keyword_tasks(config)[0]
+    output = tmp_path / original_task.workspace_dir / "xhs_search_contents.jsonl"
+    output.parent.mkdir(parents=True)
+    output.write_text(
+        '{"note_id":"note-1","title":"集成测试标题","desc":"集成测试正文"}\n',
+        encoding="utf-8",
+    )
+    task = original_task.model_copy(
+        update={"workspace_dir": str(tmp_path / original_task.workspace_dir)}
+    )
+
+    class SuccessfulRunner:
+        def build_plan(self, task: MediaCrawlerTask) -> object:
+            return MediaCrawlerRunner(config.mediacrawler).build_plan(task)
+
+        async def run(self, task: MediaCrawlerTask, execute: bool) -> object:
+            return MediaCrawlerRunResult(
+                task_id=task.task_id,
+                status=MediaCrawlerRunStatus.SUCCEEDED,
+                started_at=utc_now(),
+                completed_at=utc_now(),
+                return_code=0,
+            )
+
+    result = await MediaCrawlerIntegrationService(
+        config.mediacrawler,
+        runner=SuccessfulRunner(),  # type: ignore[arg-type]
+    ).run(task, execute=True)
+
+    assert result.run.status == "succeeded"
+    assert len(result.output_files) == 1
+    assert result.items[0].title == "集成测试标题"

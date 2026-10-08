@@ -138,3 +138,36 @@ def build_account_tasks(config: RootConfig) -> list[MediaCrawlerTask]:
         for account_config_id, account in account_config.accounts.items()
         if account.enabled
     ]
+
+
+def build_keyword_task(
+    config: RootConfig,
+    *,
+    platform: MediaCrawlerPlatform,
+    keyword: str,
+    keyword_level: int = 1,
+    max_items: int | None = None,
+) -> MediaCrawlerTask:
+    """构建单次关键词任务，用于手动或事件触发执行。"""
+
+    effective_max_items = max_items or config.keyword_search.defaults.max_items_per_keyword
+    return _build_task(
+        source_type="keyword_search",
+        platform=platform,
+        crawl_type="search",
+        target=keyword,
+        config=config.mediacrawler,
+        keyword_level=keyword_level,
+        max_items=effective_max_items,
+    )
+
+
+def build_account_task(config: RootConfig, account_config_id: str) -> MediaCrawlerTask:
+    """按配置 ID 构建单个指定账号任务。"""
+
+    if account_config_id not in config.account_search.accounts:
+        raise ValueError(f"账号配置不存在：{account_config_id}")
+    account = config.account_search.accounts[account_config_id]
+    if not account.enabled:
+        raise ValueError(f"账号配置未启用：{account_config_id}")
+    return _account_task(account_config_id, account, config.mediacrawler)

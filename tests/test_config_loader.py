@@ -123,16 +123,16 @@ def test_redacts_sensitive_keys_recursively() -> None:
     }
 
 
-def test_mediacrawler_execution_requires_license_and_commit(tmp_path: Path) -> None:
+def test_mediacrawler_execution_requires_pinned_commit(tmp_path: Path) -> None:
     document = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
     document["mediacrawler"]["allow_execution"] = True
+    document["mediacrawler"]["pinned_ref"] = ""
     path = tmp_path / "unsafe.yaml"
     path.write_text(yaml.safe_dump(document, allow_unicode=True), encoding="utf-8")
 
-    with pytest.raises(ConfigError, match="license_accepted"):
+    with pytest.raises(ConfigError, match="pinned_ref"):
         load_config(path, env={})
 
-    document["mediacrawler"]["license_accepted"] = True
     document["mediacrawler"]["pinned_ref"] = "not-a-commit"
     path.write_text(yaml.safe_dump(document, allow_unicode=True), encoding="utf-8")
     with pytest.raises(ConfigError, match="40 位小写"):

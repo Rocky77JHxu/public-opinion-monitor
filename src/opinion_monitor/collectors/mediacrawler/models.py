@@ -100,3 +100,16 @@ class MediaCrawlerLoadResult(BaseModel):
     failed_count: int = Field(ge=0)
     items: list[RawItem]
     errors: list[MediaCrawlerLoadError]
+
+
+class MediaCrawlerIntegrationResult(BaseModel):
+    """一次 MediaCrawler 任务的执行与结果加载汇总。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task: MediaCrawlerTask
+    command: MediaCrawlerCommandPlan
+    run: MediaCrawlerRunResult
+    output_files: list[str]
+    load_results: list[MediaCrawlerLoadResult]
+    items: list[RawItem]

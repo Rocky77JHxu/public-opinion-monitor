@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,10 +47,12 @@ class MediaCrawlerRunner:
         self._command_executor = command_executor or self._execute_subprocess
 
     def build_plan(self, task: MediaCrawlerTask) -> MediaCrawlerCommandPlan:
+        wrapper = Path(__file__).with_name("upstream_entry.py")
         argv = [
             self._config.command_name,
             "run",
-            self._config.entrypoint,
+            "python",
+            str(wrapper),
             "--platform",
             task.platform.value,
             "--lt",
@@ -64,6 +67,8 @@ class MediaCrawlerRunner:
             str(self._config.enable_sub_comments).lower(),
             "--get_media",
             "false",
+            "--headless",
+            str(self._config.headless).lower(),
             "--save_data_option",
             self._config.save_option,
             "--save_data_path",
@@ -132,9 +137,23 @@ class MediaCrawlerRunner:
             Path(plan.stdout_file).open("w", encoding="utf-8") as stdout_file,  # noqa: ASYNC230
             Path(plan.stderr_file).open("w", encoding="utf-8") as stderr_file,  # noqa: ASYNC230
         ):
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "OPINION_MONITOR_ENABLE_CDP_MODE": str(self._config.enable_cdp_mode).lower(),
+                    "OPINION_MONITOR_CDP_CONNECT_EXISTING": str(
+                        self._config.enable_cdp_connect_existing
+                    ).lower(),
+                    "OPINION_MONITOR_CDP_DEBUG_PORT": str(self._config.cdp_debug_port),
+                    "OPINION_MONITOR_CDP_HEADLESS": str(self._config.headless).lower(),
+                    "OPINION_MONITOR_SAVE_LOGIN_STATE": str(self._config.save_login_state).lower(),
+                    "OPINION_MONITOR_CRAWLER_MAX_SLEEP_SEC": str(self._config.max_sleep_seconds),
+                }
+            )
             process = await asyncio.create_subprocess_exec(
                 *plan.argv,
                 cwd=plan.cwd,
+                env=environment,
                 stdout=stdout_file,
                 stderr=stderr_file,
             )
@@ -183,10 +202,10 @@ class MediaCrawlerRunner:
         return_code: int | None
         status: MediaCrawlerRunStatus
         error: str | None
-        if not self._config.license_accepted or not self._config.pinned_ref:
+        if not self._config.pinned_ref:
             return_code = None
             status = MediaCrawlerRunStatus.FAILED
-            error = "缺少 license_accepted 或 pinned_ref，拒绝执行 MediaCrawler"
+            error = "缺少 pinned_ref，拒绝执行 MediaCrawler"
         else:
             return_code, status, error = await self._command_executor(task, plan)
         return MediaCrawlerRunResult(

@@ -20,24 +20,21 @@ MediaCrawlerTask
 RawItem
 ```
 
-当前默认配置为：
+部署方已确认取得 MediaCrawler 使用许可。上游已通过 Git 子模块固定在：
+
+```text
+098cae5a00023ad55f00ca9665d22d0f260e2ab2
+```
+
+当前配置允许显式执行：
 
 ```yaml
 mediacrawler:
-  allow_execution: false
-  license_accepted: false
-  pinned_ref: ""
+  allow_execution: true
+  pinned_ref: "098cae5a00023ad55f00ca9665d22d0f260e2ab2"
 ```
 
-因此本阶段：
-
-- 可以生成任务。
-- 可以生成命令计划。
-- 可以加载 JSONL 结果。
-- 不执行 MediaCrawler。
-- 不启动浏览器。
-- 不访问第三方目录。
-- 不发起平台请求。
+系统仍要求命令行显式传入 `--execute` 才会运行采集。普通 `plan-mediacrawler` 和不带 `--execute` 的 `run-mediacrawler` 只生成计划，不启动浏览器。
 
 ## 上游项目
 
@@ -137,20 +134,18 @@ account_search:
 
 系统会为每个启用账号生成 `creator` 或 `detail` 任务。
 
-## 执行安全门槛
+## 执行前提
 
-必须同时满足以下条件才会实际执行：
+许可证人工确认字段已按你的授权结论移除。实际执行仍需要：
 
 1. `mediacrawler.allow_execution: true`
-2. `mediacrawler.license_accepted: true`
-3. `mediacrawler.pinned_ref` 是 40 位小写 Git commit SHA
-4. `third_party/MediaCrawler` 目录存在
-5. 入口文件存在
-6. 本地 Git `HEAD` 与 `pinned_ref` 完全一致
+2. `mediacrawler.pinned_ref` 是 40 位小写 Git commit SHA
+3. `third_party/MediaCrawler` 子模块存在
+4. 上游入口存在
+5. 子模块本地 `HEAD` 与 `pinned_ref` 完全一致
+6. CLI 显式传入 `--execute`
 
-默认示例配置不满足以上条件，因此只生成计划。
-
-`license_accepted` 只表示部署方已完成内部审批配置，不构成对上游许可证或平台条款的法律解释。
+固定版本校验用于防止运行未审查代码，不属于许可证围栏。
 
 ## 隔离 Runner
 
@@ -213,6 +208,43 @@ uv run opinion-monitor \
 
 该命令不会执行采集。
 
+## 单任务执行
+
+关键词任务默认只生成计划：
+
+```bash
+uv run opinion-monitor \
+  run-mediacrawler \
+  --source keyword \
+  --platform xhs \
+  --keyword 示例关键词
+```
+
+显式执行：
+
+```bash
+uv run opinion-monitor \
+  --config config/config.local.yaml \
+  run-mediacrawler \
+  --source keyword \
+  --platform xhs \
+  --keyword 示例关键词 \
+  --execute
+```
+
+指定账号任务显式执行：
+
+```bash
+uv run opinion-monitor \
+  --config config/config.local.yaml \
+  run-mediacrawler \
+  --source account \
+  --account-config-id example \
+  --execute
+```
+
+执行完成后，集成服务会自动扫描任务工作区中的 JSONL 文件并转换为 `RawItem`。如果登录态缺失、平台要求验证或任务失败，结果中的 `run.status` 会保留失败原因，不会绕过验证。
+
 ## JSONL 结果加载
 
 MediaCrawler 输出 JSONL 后，可加载为统一 `RawItem`：
@@ -265,6 +297,21 @@ files = discover_jsonl_files("data/media_crawler/tasks/{task_id}")
 | 分享 | `share_count`、`forward_count` |
 | 阅读 | `read_count`、`view_count`、`play_count` |
 
+## 上游配置映射
+
+主系统通过 `upstream_entry.py` 启动固定版本：
+
+- 不修改上游源码。
+- 不绕过登录、验证码或平台反滥用机制。
+- 在启动前映射 CDP 开关。
+- 映射 CDP 端口。
+- 映射 headless 设置。
+- 映射登录态保存设置。
+- 映射请求休眠时间。
+- 保留上游 JSONL 输出目录。
+
+MediaCrawler 会按平台在子模块的 `browser_data` 目录中复用登录态。该目录位于子模块工作区内，不会被主仓库提交。
+
 ## 任务 ID 策略
 
 任务 ID 使用确定性 UUIDv5，命名空间输入包含：
@@ -288,14 +335,12 @@ files = discover_jsonl_files("data/media_crawler/tasks/{task_id}")
 - 连续认证或传输失败时停止任务并告警。
 - 原始输出设置有限保留周期。
 
-## 许可证约束
+## 许可证记录
 
-MediaCrawler 上游项目声明面向非商业学习用途。政府或生产环境使用可能超出其许可证或平台条款范围。正式引入前必须完成：
+部署方已于 2026-10-08 确认 MediaCrawler 使用许可已取得。上游以 Git 子模块方式固定在：
 
-- 法律审查。
-- 平台条款审查。
-- 使用范围审查。
-- 必要授权获取。
-- 替代方案评估。
+```text
+098cae5a00023ad55f00ca9665d22d0f260e2ab2
+```
 
-在审批完成前，本仓库不 vendoring 上游源码，也不开启执行开关。
+后续仍应保留许可文件、授权范围、审批记录与平台条款核查记录，并确保实际采集范围不超出授权范围。

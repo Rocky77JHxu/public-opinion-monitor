@@ -1,6 +1,6 @@
 # 舆情监测系统
 
-本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 3：MediaCrawler 集成基线** 阶段。任务构建、命令计划、隔离 Runner 与 JSONL 结果加载已完成；默认禁止执行，未启动常驻爬取任务。
+本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 3：MediaCrawler 已固定并接入** 阶段。任务构建、命令计划、隔离 Runner、登录态复用映射、单任务执行与 JSONL 结果加载已完成；未启动常驻爬取任务。
 
 ## 系统定位
 
@@ -50,7 +50,7 @@
 
 - 常驻调度器。
 - 原始数据持久化。
-- MediaCrawler 真实执行与固定版本 vendoring / submodule 引入。
+- MediaCrawler 常驻调度与任务状态持久化。
 - 清洗与去重。
 - LLM 分析模块。
 - 评分流水线。
@@ -74,6 +74,7 @@ uv run opinion-monitor inspect-env
 uv run opinion-monitor show-config --format json
 uv run opinion-monitor collect-hotsearch --platform weibo
 uv run opinion-monitor plan-mediacrawler --source keyword
+uv run opinion-monitor run-mediacrawler --help
 uv run opinion-monitor load-mediacrawler --help
 ```
 

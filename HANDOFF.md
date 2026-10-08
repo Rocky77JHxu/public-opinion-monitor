@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 3 已完成 MediaCrawler 任务构建、隔离命令计划、安全执行门槛、JSONL 结果加载与 RawItem 映射；默认禁止执行，未引入上游源码，未启动真实采集。
+建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。部署方已确认取得 MediaCrawler 使用许可；Phase 3 已固定引入上游子模块，完成任务构建、隔离执行、上游配置映射、单任务 CLI 与 JSONL 自动加载。尚未执行真实采集，因为缺少具体关键词 / 账号范围与平台登录态。
 
 ## 更新时间
 
@@ -17,7 +17,8 @@
 - 当前基线为无旧历史的中文提交。
 - Phase 1 已提交推送，提交为 `76da3d9`。
 - Phase 2 已验证、提交并推送，提交为 `00306f1`，后续解析修复提交为 `9eb051e`。
-- Phase 3 变更已完成并待提交推送。
+- Phase 3 主系统侧基线已提交为 `efb8828`。
+- 许可确认后的固定版本接入与执行能力增强已完成，待提交推送。
 
 ## 已完成工作
 
@@ -80,6 +81,36 @@
 - 添加中文项目文档与交接文档。
 - 完成中文文档重建、验证、重新提交与远端历史替换。
 
+### 许可确认后的 Phase 3 增强
+
+- 部署方确认 MediaCrawler 使用许可已取得。
+- 以 Git submodule 固定引入上游：
+  - 路径：`third_party/MediaCrawler`
+  - commit：`098cae5a00023ad55f00ca9665d22d0f260e2ab2`
+- 已在子模块内执行 `uv sync`。
+- 已验证上游 `main.py --help` 可运行。
+- 新增 `upstream_entry.py` 包装器：
+  - 不修改上游源码。
+  - 不绕过平台验证。
+  - 映射 CDP 开关、端口、headless、登录态保存与请求休眠。
+- 移除代码级 `license_accepted` 人工确认字段。
+- 示例配置更新为 `allow_execution: true`。
+- 保留固定 commit 校验，防止运行未审查版本。
+- 新增 `run-mediacrawler` CLI：
+  - 默认仅输出计划。
+  - 显式 `--execute` 才执行。
+  - 支持单关键词任务。
+  - 支持配置内指定账号任务。
+- 新增 `MediaCrawlerIntegrationService`：
+  - 调用 Runner。
+  - 自动发现任务目录 JSONL。
+  - 自动加载为 `RawItem`。
+  - 输出执行结果与加载结果。
+- 主项目 Ruff / Mypy 排除 `third_party/`，避免格式化或检查上游源码。
+- 已验证包装器在固定版本上游环境中可正常显示 CLI 帮助。
+- 未启动浏览器、未执行真实平台采集。
+
+### Phase 3 实现
 ### Phase 3 实现
 
 - 将 `MediaCrawlerPlatform` 移入领域枚举，`RawItem.platform` 同时支持热搜平台与 MediaCrawler 平台。
@@ -99,8 +130,9 @@
   - 显式传入平台、登录方式、采集类型、关键词 / 账号 ID、条数、评论数、并发数与保存路径。
 - 已根据上游 `cmd_arg/arg.py` 核对当前 CLI 参数。
 - 新增 `MediaCrawlerRunner`：
-  - 默认 `allow_execution=false`，只生成计划。
-  - 实际执行前要求许可证审批标记与 40 位 commit SHA。
+  - 初版默认 `allow_execution=false`，只生成计划。
+  - 许可确认后示例配置允许执行，但 CLI 仍需显式 `--execute`。
+  - 实际执行前要求 40 位 commit SHA。
   - 校验第三方目录、入口文件与 Git HEAD。
   - 独立任务工作区。
   - stdout / stderr 落盘。
@@ -118,7 +150,7 @@
   - `plan-mediacrawler`
   - `load-mediacrawler`
 - 增加人工合成 MediaCrawler JSONL fixture。
-- 未引入上游源码；许可证与合规审查仍未完成。
+- 初版未引入上游源码；许可确认后已通过 submodule 固定引入。
 
 ### Phase 2 实现
 
@@ -227,16 +259,21 @@ Phase 2 验证结果：
 
 Phase 3 验证结果：
 
-- 测试：`45 passed`
+- 测试：`47 passed`
 - Ruff：`All checks passed!`
-- Mypy：`Success: no issues found in 30 source files`
+- Mypy：`Success: no issues found in 32 source files`
+- 上游依赖安装：`uv sync` 成功。
+- 上游 CLI 帮助：`uv run main.py --help` 成功。
+- 主系统包装器帮助：`upstream_entry.py --help` 成功。
+- 单关键词任务计划：`run-mediacrawler` 未带 `--execute` 时输出 `skipped`，未启动浏览器。
+- 子模块 HEAD：`098cae5a00023ad55f00ca9665d22d0f260e2ab2`，工作区干净。
 
 ## 当前阻塞点
 
-1. 尚未进行真实热搜接口连通性测试。
+1. 尚未执行真实 MediaCrawler 关键词 / 账号采集；需要部署方提供具体平台、关键词或启用账号，并完成登录态。
 2. 尚未测试钉钉自动化 Webhook 的真实 Payload 契约。
-3. MediaCrawler 尚未按固定版本引入。
-4. MediaCrawler 上游许可证与政府 / 生产场景适用性尚未完成法务审查。
+3. 尚未实现任务状态与原始数据持久化。
+4. 尚未实现常驻调度器。
 5. 情感分类体系仍是候选方案，等待业务确认。
 
 ## 紧接着的后续步骤
@@ -250,7 +287,7 @@ Phase 3 验证结果：
 
 1. **Phase 1**：配置模型、环境变量展开、日志与 CLI。已完成。
 2. **Phase 2**：热搜采集器与解析 fixture。核心实现已完成，真实接口探针未执行。
-3. **Phase 3**：MediaCrawler 任务构建、执行、结果加载与平台映射。主系统侧基线已完成，真实执行待合规审查与固定版本引入。
+3. **Phase 3**：MediaCrawler 任务构建、执行、结果加载与平台映射。固定版本与单任务执行能力已完成，真实采集待具体范围与登录态。
 4. **Phase 4**：清洗、日期过滤、URL / 内容去重与状态仓储。
 5. **Phase 5**：OpenAI 兼容客户端与受控 JSON 分析。
 6. **Phase 6**：评分、预警级别分类与可解释记录。

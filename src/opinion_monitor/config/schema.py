@@ -235,8 +235,9 @@ class MediaCrawlerConfig(StrictModel):
     max_concurrency: PositiveInt
     max_sleep_seconds: NonNegativeInt
     allow_execution: bool = False
-    license_accepted: bool = False
     pinned_ref: str = ""
+    headless: bool = False
+    save_login_state: bool = True
     task_timeout_seconds: PositiveInt = 1800
     command_name: str = "uv"
     entrypoint: str = "main.py"
@@ -244,9 +245,6 @@ class MediaCrawlerConfig(StrictModel):
 
     @model_validator(mode="after")
     def check_execution_safety(self) -> MediaCrawlerConfig:
-        if self.allow_execution and not self.license_accepted:
-            msg = "mediacrawler.license_accepted 必须为 true 才能允许执行"
-            raise ValueError(msg)
         if self.allow_execution and not self.pinned_ref:
             msg = "mediacrawler.pinned_ref 不能为空才能允许执行"
             raise ValueError(msg)
