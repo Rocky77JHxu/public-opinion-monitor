@@ -935,25 +935,41 @@ Phase 3 验证结果：
 - dry-run 状态：成功。
 - 已加入固定来源标识：
   - `source_system=opinion_monitor`
+- 真实 Webhook 投递状态：成功。
+  - HTTP 状态码：`200`
+  - 响应：`{"data":true,"success":true}`
+  - 尝试序号：`3`
 - 当前真实库状态：
   - `dingtalk_deliveries=1`
-  - `dingtalk_delivery_attempts=2`
+  - `dingtalk_delivery_attempts=3`
 
-### 真实 Webhook 冒烟尝试
+### 真实 Webhook 冒烟结果
 
-- 构造了无敏感契约测试事件：
+- 用户已将 `.env` 中的 `DINGTALK_AUTOMATION_WEBHOOK_URL` 替换为真实地址。
+- 构造并发送了无敏感契约测试事件：
   - 标题：`舆情预警 Webhook 契约测试`
+  - 事件 ID：`6ee2459c-aa47-42d9-9843-a00ab4c33293`
   - 级别：`orange`
-  - 只写入 `/tmp/opinion-dingtalk-smoke.db`，不进入生产库。
-- 尝试真实发送时，客户端发现：
-  - `.env` 中 `DINGTALK_AUTOMATION_WEBHOOK_URL` 仍为 `replace-me`。
+  - 固定来源：`source_system=opinion_monitor`
+  - 模式：`automation_json`
 - 结果：
-  - 状态：`failed`
-  - 错误：Webhook URL 仍是占位符。
-  - 未向外部服务发出请求。
-  - 无敏感测试事件未泄露。
-  - 该失败记录只存在于 `/tmp` 冒烟库。
-- 需要用户提供或替换真实钉钉自动化 Webhook URL 后重试。
+  - 状态：`succeeded`
+  - HTTP 状态码：`200`
+  - 响应：`{"data":true,"success":true}`
+  - Payload SHA-256：`f1ede208d0a4c4f734d07fa62b5313a396cca923b045709a83dad609bfad89e8`
+- 随后已发送真实结构化事件：
+  - 事件 ID：`929819bf-7fbc-59a2-aba8-1756e79a05e5`
+  - 预警级别：`blue`
+  - 状态：`succeeded`
+  - HTTP 状态码：`200`
+  - 响应：`{"data":true,"success":true}`
+- 结论：
+  - Webhook URL 可用。
+  - 触发关键词可用。
+  - 钉钉服务端成功接收 JSON。
+  - 业务响应 `success=true`。
+  - 本地投递台账已写入真实成功状态。
+  - 仍需在钉钉群 / 表格中人工确认 Workflow 最终展示效果。
 
 ### Phase 7 验证结果
 
@@ -966,7 +982,7 @@ Phase 3 验证结果：
 
 ## 当前阻塞点
 
-1. `.env` 中钉钉 Webhook URL 仍为 `replace-me`，真实契约冒烟被阻塞。
+1. 尚未在钉钉群 / 表格中人工确认自动化 Workflow 最终展示效果。
 2. 尚未实现 PostgreSQL 存储。
 3. 尚未实现常驻调度器。
 4. 尚未对其余 5 条 CleanItem 执行完整 LLM 分析与评分。
@@ -974,10 +990,10 @@ Phase 3 验证结果：
 
 ## 紧接着的后续步骤
 
-1. 用户将 `.env` 的 `DINGTALK_AUTOMATION_WEBHOOK_URL` 从 `replace-me` 替换为真实 Webhook URL。
-2. 重试无敏感契约测试事件，确认钉钉自动化流程可解析 `automation_json` 字段。
-3. 用真实结构化事件执行一次 `--execute` 投递并检查钉钉侧消息。
-4. 进入 Phase 8：端到端编排与定时试运行。
+1. 用户在钉钉群 / 表格中确认无敏感契约测试事件与真实蓝色事件是否按预期展示。
+2. 如展示字段缺失，调整钉钉 Workflow 映射。
+3. 进入 Phase 8：端到端编排与定时试运行。
+4. 实现常驻调度器。
 
 ## 阶段实施计划
 
@@ -987,7 +1003,7 @@ Phase 3 验证结果：
 4. **Phase 4**：清洗、日期过滤、URL / 内容去重与状态仓储。已完成。
 5. **Phase 5**：OpenAI 兼容 Responses API 与严格结构化输出。基线、最小冒烟与一条完整四任务真实分析已完成。
 6. **Phase 6**：评分、预警级别分类与可解释记录。已完成一条真实数据端到端评分入库。
-7. **Phase 7**：钉钉自动化输出、重试与投递台账。代码基线与真实事件 dry-run 已完成，真实 Webhook URL 待替换。
+7. **Phase 7**：钉钉自动化输出、重试与投递台账。代码基线、无敏感契约测试与真实事件端到端投递均已完成。
 8. **Phase 8**：端到端与定时试运行。
 
 ## 关键决策

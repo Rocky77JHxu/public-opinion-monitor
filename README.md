@@ -74,7 +74,7 @@
 - 常驻调度器。
 - MediaCrawler 常驻调度与 PostgreSQL 存储。
 - LLM 批量并发调用、结果缓存与质量评测集。
-- 真实钉钉 Webhook URL 契约冒烟：当前 `.env` 中仍是 `replace-me` 占位符。
+- 真实钉钉 Webhook 契约测试与真实结构化事件端到端投递已完成。
 - 常驻调度器自动触发钉钉产出。
 
 ## 开发环境

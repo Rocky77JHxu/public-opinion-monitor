@@ -370,29 +370,33 @@ uv run opinion-monitor \
 - dry-run 成功。
 - Payload 已包含固定来源标识：
   - `source_system=opinion_monitor`
+- 真实 Webhook 投递成功：
+  - HTTP 状态码：`200`
+  - 响应：`{"data":true,"success":true}`
+  - 尝试序号：`3`
 - 台账：
   - `dingtalk_deliveries=1`
-  - `dingtalk_delivery_attempts=2`
+  - `dingtalk_delivery_attempts=3`
 
-## 当前阻塞点
+## 2026-10-09 真实 Webhook 契约测试
 
-真实 Webhook 契约冒烟未能发出请求：当前 `.env` 中：
+已使用无敏感契约测试事件验证钉钉自动化 Webhook：
 
-```text
-DINGTALK_AUTOMATION_WEBHOOK_URL=replace-me
-```
+- 标题：`舆情预警 Webhook 契约测试`
+- 事件 ID：`6ee2459c-aa47-42d9-9843-a00ab4c33293`
+- 级别：`orange`
+- 模式：`automation_json`
+- 固定来源：`source_system=opinion_monitor`
+- HTTP 状态码：`200`
+- 响应：`{"data":true,"success":true}`
+- Payload SHA-256：
+  - `f1ede208d0a4c4f734d07fa62b5313a396cca923b045709a83dad609bfad89e8`
 
-该值仍是占位符。客户端已按预期拒绝请求并记录失败原因，没有向外部服务发送数据。
+随后已对真实结构化事件执行端到端投递：
 
-需要将该项替换为钉钉自动化流程提供的真实 Webhook URL 后，再执行：
+- 事件 ID：`929819bf-7fbc-59a2-aba8-1756e79a05e5`
+- 预警级别：`blue`
+- HTTP 状态码：`200`
+- 响应：`{"data":true,"success":true}`
 
-```bash
-env -u DINGTALK_AUTOMATION_WEBHOOK_URL \
-  uv run opinion-monitor \
-  --config config/config.local.yaml \
-  --env-file .env \
-  send-dingtalk-output \
-  --event-id <event-id> \
-  --force \
-  --execute
-```
+结论：Webhook URL、触发关键词、JSON 解析与业务响应契约均可用。仍需在钉钉群或表格中人工确认自动化 Workflow 的最终展示效果。
