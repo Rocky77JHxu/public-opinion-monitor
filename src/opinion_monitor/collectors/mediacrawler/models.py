@@ -10,6 +10,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from opinion_monitor.models import MediaCrawlerPlatform, RawItem
+from opinion_monitor.models.clean import CommentRecord
 
 PositiveFloat = Annotated[float, Field(gt=0)]
 
@@ -105,6 +106,19 @@ class MediaCrawlerLoadResult(BaseModel):
     loaded_count: int = Field(ge=0)
     failed_count: int = Field(ge=0)
     items: list[RawItem]
+    errors: list[MediaCrawlerLoadError]
+
+
+class MediaCrawlerCommentLoadResult(BaseModel):
+    """评论 JSONL 加载结果。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    total_lines: int = Field(ge=0)
+    loaded_count: int = Field(ge=0)
+    failed_count: int = Field(ge=0)
+    comments: list[CommentRecord]
     errors: list[MediaCrawlerLoadError]
 
 

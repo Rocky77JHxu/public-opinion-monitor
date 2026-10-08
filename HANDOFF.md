@@ -2,11 +2,11 @@
 
 ## 当前目标
 
-建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。部署方已确认取得 MediaCrawler 使用许可；Phase 3 已固定引入上游子模块，完成任务构建、隔离执行、上游配置映射、单任务 CLI 与 JSONL 自动加载。尚未执行真实采集，因为缺少具体关键词 / 账号范围与平台登录态。
+建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 4 已完成 SQLite 持久化、RawItem / 评论证据入库、日期过滤、URL 规范化与去重、SimHash 文本指纹与相似度去重，并用真实关键词与指定账号数据验证。
 
 ## 更新时间
 
-2026-10-08，Asia/Shanghai
+2026-10-09，Asia/Shanghai
 
 ## 仓库状态
 
@@ -18,7 +18,8 @@
 - Phase 1 已提交推送，提交为 `76da3d9`。
 - Phase 2 已验证、提交并推送，提交为 `00306f1`，后续解析修复提交为 `9eb051e`。
 - Phase 3 主系统侧基线已提交为 `efb8828`。
-- 许可确认后的固定版本接入与执行能力增强已完成，待提交推送。
+- MediaCrawler 固定版本接入与条数保护已提交推送，最新已推送提交为 `8b8fa52`。
+- Phase 4 变更已完成并待提交推送。
 
 ## 已完成工作
 
@@ -396,28 +397,149 @@ Phase 3 验证结果：
 - 结论：小红书详情请求限流已把内容限制在 5 条，且评论阶段未被截断。
 - 测试：`54 passed`。
 
+## Phase 4 实现
+
+### 领域模型
+
+- 新增 `CleanItem`：
+  - 关联 RawItem。
+  - 支持多个原始来源。
+  - 保存规范化 URL 与 URL 哈希。
+  - 保存 64 位 SimHash。
+  - 保存标题哈希与内容哈希。
+  - 保存初步规则分类、置信度与理由。
+- 新增 `DiscardedItem`：
+  - 保存丢弃原因与细节。
+- 新增 `CommentRecord`：
+  - 保存任务、平台、笔记、评论、父评论、作者、时间、点赞与原始 Payload。
+- 新增 `ProcessingResult`：
+  - 保存处理运行 ID。
+  - 输入 / 接受 / 丢弃计数。
+  - 清洗条目与丢弃明细。
+
+### 清洗流水线
+
+- Unicode NFKC 文本规范化。
+- URL 规范化：
+  - 小写 scheme / host。
+  - 移除默认端口。
+  - 归一化路径。
+  - 查询参数排序。
+  - 移除 fragment。
+  - 移除追踪参数与小红书一次性 token。
+- 发布时间过滤：
+  - 默认超过 72 小时丢弃。
+  - 缺失时间默认保留待人工复审。
+  - 支持配置为缺失即丢弃。
+- URL SHA-256 去重。
+- 平台 + 外部 ID 去重。
+- 64 位 SimHash：
+  - token 特征。
+  - Unicode 3-gram 特征。
+- 文本相似度确认：
+  - 标题阈值读取配置。
+  - 标题 + 正文阈值读取配置。
+  - 支持是否跨平台合并配置。
+- 重复条目保留原始数据，并挂载到既有 CleanItem 来源列表。
+- 规则分类读取 `rules.categories`。
+
+### SQLite 持久化
+
+- 新增 `SqliteStorage`：
+  - WAL 模式。
+  - 外键约束。
+  - Schema 初始化。
+  - 数据完整性统计。
+- 新增表：
+  - `media_crawler_tasks`
+  - `media_crawler_runs`
+  - `raw_items`
+  - `comment_records`
+  - `clean_items`
+  - `clean_item_sources`
+  - `processing_runs`
+  - `processing_item_decisions`
+- RawItem 与 CommentRecord 使用稳定 ID，重复入库幂等。
+- `run-mediacrawler --execute` 会保存单次执行状态。
+- 每个处理运行保存输入 / 接受 / 丢弃计数。
+- 每个 RawItem 仅保留一条处理决策。
+- 保留原始 Payload 与丢弃细节，支持审计。
+- 当前显式限制 `storage.backend=sqlite`，未实现的 PostgreSQL 配置会报错。
+
+### 评论证据加载
+
+- 新增 `load_comment_jsonl`。
+- 支持字段别名映射。
+- 单行解析失败不会丢弃整个评论文件。
+- 评论与内容分离加载，不再混入 RawItem。
+
+### CLI
+
+- 新增：
+  - `init-db`
+  - `ingest-mediacrawler-task`
+  - `process-pending`
+- `ingest-mediacrawler-task` 读取任务 `task.json`。
+- 自动发现内容与评论 JSONL。
+- 自动入库并执行清洗。
+- 默认输出统计，不输出完整原始内容。
+- `process-pending` 只处理尚无决策记录的 RawItem。
+
+### Phase 4 真实数据验证
+
+- 已入库关键词任务：
+  - 任务 ID：`20a7555f-7456-54b3-9cc7-7e23b4d6b9d2`
+  - 关键词：`火灾`
+- 已入库指定账号任务：
+  - 任务 ID：`d69d4e3d-097b-5c43-bb07-992769afe5ac`
+  - 账号配置：`provided_xhs_account`
+- 数据库：
+  - `data/opinion_monitor.db`
+- 结果：
+  - RawItem：10。
+  - CleanItem：6。
+  - 评论：375。
+  - 处理运行：2。
+  - 处理决策：10。
+- 关键词任务中 4 条超过 72 小时被丢弃，1 条保留。
+- 指定账号任务 5 条均保留。
+- `PRAGMA integrity_check` 结果：`ok`。
+- `PRAGMA foreign_key_check` 无错误。
+- 重复导入同一任务时：
+  - `raw_inserted=0`
+  - `comments_inserted=0`
+  - pending 输入为 0
+- 验证了入库与清洗幂等性。
+
+### Phase 4 验证结果
+
+- 测试：`66 passed`
+- Ruff：`All checks passed!`
+- Mypy：`Success: no issues found in 45 source files`
+- 新增文档：`docs/persistence-processing.md`
+
 ## 当前阻塞点
 
-1. MediaCrawler 关键词与指定账号真实冒烟均已成功。
-2. 尚未测试钉钉自动化 Webhook 的真实 Payload 契约。
-3. 尚未实现任务状态与原始数据持久化。
-4. 尚未实现常驻调度器。
+1. 尚未测试钉钉自动化 Webhook 的真实 Payload 契约。
+2. 尚未实现 PostgreSQL 存储。
+3. 尚未实现常驻调度器。
+4. 尚未实现 LLM 分析与评分。
 5. 情感分类体系仍是候选方案，等待业务确认。
 
 ## 紧接着的后续步骤
 
-1. 为 MediaCrawler 任务增加内容条数 watchdog，防止单页 20 条导致超出配置上限。
-2. 进入 Phase 4：任务状态、原始条目与评论证据持久化。
-3. 为任务状态与输出文件建立数据库索引。
-4. 实现日期过滤、URL 规范化、URL 去重与内容相似度去重。
-5. 用无敏感测试 Payload 验证钉钉自动化 Webhook。
+1. 提交并推送 Phase 4。
+2. 进入 Phase 5：OpenAI 兼容客户端、结构化 JSON 输出、地域实体提取、分类与风险建议。
+3. 将评论证据按 CleanItem 聚合，为情感分析做准备。
+4. 用无敏感测试 Payload 验证钉钉自动化 Webhook。
+5. 实现常驻调度器。
 
 ## 阶段实施计划
 
 1. **Phase 1**：配置模型、环境变量展开、日志与 CLI。已完成。
 2. **Phase 2**：热搜采集器与解析 fixture。已完成，并完成真实接口探针与 bilibili / 百度解析修正。
 3. **Phase 3**：MediaCrawler 任务构建、执行、结果加载与平台映射。固定版本、单任务执行、关键词真实冒烟已完成；账号采集待解析问题解决。
-4. **Phase 4**：清洗、日期过滤、URL / 内容去重与状态仓储。
+4. **Phase 4**：清洗、日期过滤、URL / 内容去重与状态仓储。已完成。
 5. **Phase 5**：OpenAI 兼容客户端与受控 JSON 分析。
 6. **Phase 6**：评分、预警级别分类与可解释记录。
 7. **Phase 7**：钉钉自动化输出、重试与投递台账。

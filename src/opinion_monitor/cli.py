@@ -36,6 +36,11 @@ from opinion_monitor.config import (
 from opinion_monitor.config.schema import RootConfig
 from opinion_monitor.models import HotSearchPlatform, MediaCrawlerPlatform
 from opinion_monitor.observability import configure_logging
+from opinion_monitor.storage import (
+    SqliteStorage,
+    ingest_and_process_media_crawler_task,
+    process_pending_items,
+)
 
 DEFAULT_CONFIG_PATH = Path("config/config.example.yaml")
 
@@ -212,6 +217,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_media_parser.set_defaults(handler=run_mediacrawler)
 
+    init_db = subparsers.add_parser(
+        "init-db",
+        help="初始化 SQLite 原始层与清洗层表结构",
+    )
+    init_db.set_defaults(handler=run_init_db)
+
+    ingest_media = subparsers.add_parser(
+        "ingest-mediacrawler-task",
+        help="读取任务 JSON 与 JSONL，入库并执行 Phase 4 清洗",
+    )
+    ingest_media.add_argument("--task-file", type=Path, required=True, help="task.json 路径")
+    ingest_media.add_argument(
+        "--full",
+        action="store_true",
+        help="输出完整 RawItem 与评论内容；默认只输出加载统计",
+    )
+    ingest_media.set_defaults(handler=run_ingest_mediacrawler_task)
+
+    process_pending = subparsers.add_parser(
+        "process-pending",
+        help="清洗数据库中尚未处理的 RawItem",
+    )
+    process_pending.set_defaults(handler=run_process_pending)
+
     return parser
 
 
@@ -223,6 +252,13 @@ def _environment_and_config(
     environment = dict(build_environment(args.env_file))
     config = load_config(args.config, env=environment, strict_env=strict_env)
     return environment, config
+
+
+def _sqlite_storage_from_config(config: RootConfig) -> SqliteStorage:
+    if config.storage.backend != "sqlite":
+        message = "Phase 4 当前仅实现 SQLite；请在 storage.backend 中使用 sqlite"
+        raise ConfigError(message)
+    return SqliteStorage(config.storage.sqlite.path)
 
 
 def run_validate_config(args: argparse.Namespace) -> int:
@@ -386,9 +422,47 @@ def run_mediacrawler(args: argparse.Namespace) -> int:
             limit=args.limit if args.limit is not None else task.max_items,
         )
     )
+    if args.execute:
+        storage = _sqlite_storage_from_config(config)
+        storage.initialise()
+        storage.save_media_crawler_run(
+            result.run,
+            output_files=result.output_files,
+        )
     print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
     if args.execute and result.run.status.value != "succeeded":
         return 2
+    return 0
+
+
+def run_init_db(args: argparse.Namespace) -> int:
+    _environment, config = _environment_and_config(args)
+    storage = _sqlite_storage_from_config(config)
+    storage.initialise()
+    print(json.dumps(storage.stats(), ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_ingest_mediacrawler_task(args: argparse.Namespace) -> int:
+    from opinion_monitor.collectors.mediacrawler.models import MediaCrawlerTask
+
+    _environment, config = _environment_and_config(args)
+    task = MediaCrawlerTask.model_validate_json(args.task_file.read_text(encoding="utf-8"))
+    summary = ingest_and_process_media_crawler_task(config, task)
+    payload = summary.model_dump(mode="json")
+    if not args.full:
+        for load in payload["content_loads"]:
+            load["items"] = []
+        for load in payload["comment_loads"]:
+            load["comments"] = []
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_process_pending(args: argparse.Namespace) -> int:
+    _environment, config = _environment_and_config(args)
+    result = process_pending_items(config)
+    print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
     return 0
 
 

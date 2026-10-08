@@ -21,6 +21,15 @@ class MediaCrawlerPlatform(StrEnum):
     ZHIHU = "zhihu"
 
 
+class AlertCategory(StrEnum):
+    SUDDEN_EVENT = "sudden_event"
+    MASS_EVENT = "mass_event"
+    POLICE_STABILITY = "police_stability"
+    LIVELIHOOD_SENSITIVE = "livelihood_sensitive"
+    CYBER_FRAUD = "cyber_fraud"
+    OTHER = "other"
+
+
 class SourceType(StrEnum):
     HOTSEARCH = "hotsearch"
     KEYWORD_SEARCH = "keyword_search"

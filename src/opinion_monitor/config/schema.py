@@ -13,7 +13,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from opinion_monitor.models.enums import HotSearchPlatform, MediaCrawlerPlatform
+from opinion_monitor.models.enums import (
+    AlertCategory,
+    HotSearchPlatform,
+    MediaCrawlerPlatform,
+)
 
 PositiveInt = Annotated[int, Field(ge=1)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
@@ -28,15 +32,6 @@ class StrictModel(BaseModel):
     """禁止未知字段的模型基类。"""
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
-
-
-class AlertCategory(StrEnum):
-    SUDDEN_EVENT = "sudden_event"
-    MASS_EVENT = "mass_event"
-    POLICE_STABILITY = "police_stability"
-    LIVELIHOOD_SENSITIVE = "livelihood_sensitive"
-    CYBER_FRAUD = "cyber_fraud"
-    OTHER = "other"
 
 
 class AlertLevel(StrEnum):

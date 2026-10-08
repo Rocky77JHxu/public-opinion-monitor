@@ -12,11 +12,12 @@ from uuid import UUID, uuid5
 from pydantic import ValidationError
 
 from opinion_monitor.collectors.mediacrawler.models import (
+    MediaCrawlerCommentLoadResult,
     MediaCrawlerLoadContext,
     MediaCrawlerLoadError,
     MediaCrawlerLoadResult,
 )
-from opinion_monitor.models import MediaCrawlerPlatform, RawItem
+from opinion_monitor.models import CommentRecord, MediaCrawlerPlatform, RawItem
 
 COLLECTOR_VERSION = "mediacrawler-jsonl-v1"
 _ITEM_NAMESPACE = UUID("02e57f8f-99c4-4a30-b678-514df842a70b")
@@ -218,4 +219,94 @@ def discover_jsonl_files(directory: str | Path) -> list[Path]:
         (path for path in root.rglob("*.jsonl") if path.is_file()),
         key=lambda path: (path.stat().st_mtime_ns, path.as_posix()),
         reverse=True,
+    )
+
+
+def _map_comment_record(
+    record: dict[str, Any],
+    context: MediaCrawlerLoadContext,
+    line_number: int,
+) -> CommentRecord:
+    comment_id = _first(record, ("comment_id", "id", "commentId"))
+    note_id = _first(record, ("note_id", "noteId", "source_note_id"))
+    content = _first(record, ("content", "text", "comment_content"))
+    if not comment_id or not note_id or not content:
+        raise ValueError("评论缺少 comment_id、note_id 或 content")
+    comment_id = str(comment_id)
+    note_id = str(note_id)
+    parent = _first(record, ("parent_comment_id", "parentId"))
+    published_at = _parse_datetime(_first(record, ("create_time", "created_at", "create_at")))
+    like_count = _as_int(_first(record, ("like_count", "liked_count", "digg_count")))
+    return CommentRecord(
+        id=uuid5(
+            _ITEM_NAMESPACE,
+            f"comment:{context.task_id}:{line_number}:{note_id}:{comment_id}",
+        ),
+        task_id=context.task_id,
+        platform=context.platform,
+        note_external_id=f"{context.platform.value}:{note_id}",
+        external_comment_id=f"{context.platform.value}:{comment_id}",
+        parent_comment_id=str(parent) if parent else None,
+        content=str(content),
+        author_id=(
+            str(author)
+            if (author := _first(record, ("creator_hash", "user_id", "author_id"))) is not None
+            else None
+        ),
+        author_name=(
+            str(author_name)
+            if (author_name := _first(record, ("nickname", "author_name"))) is not None
+            else None
+        ),
+        published_at=published_at,
+        collected_at=datetime.now(UTC),
+        like_count=like_count,
+        raw_payload={"source": "mediacrawler_jsonl", "original": record},
+        collector_version=COLLECTOR_VERSION,
+    )
+
+
+def load_comment_jsonl(
+    path: str | Path,
+    context: MediaCrawlerLoadContext,
+    *,
+    limit: int | None = None,
+) -> MediaCrawlerCommentLoadResult:
+    """加载评论 JSONL；单行失败不丢弃整个文件。"""
+
+    file_path = Path(path)
+    try:
+        lines = file_path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return MediaCrawlerCommentLoadResult(
+            path=str(file_path),
+            total_lines=0,
+            loaded_count=0,
+            failed_count=0,
+            comments=[],
+            errors=[MediaCrawlerLoadError(line_number=1, reason=f"无法读取文件：{exc}")],
+        )
+
+    comments: list[CommentRecord] = []
+    errors: list[MediaCrawlerLoadError] = []
+    for index, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        if limit is not None and len(comments) >= limit:
+            break
+        try:
+            record = json.loads(line)
+            if not isinstance(record, dict):
+                raise TypeError("评论 JSONL 行根节点必须是对象")
+            comments.append(_map_comment_record(record, context, index))
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            errors.append(MediaCrawlerLoadError(line_number=index, reason=str(exc)))
+
+    return MediaCrawlerCommentLoadResult(
+        path=str(file_path),
+        total_lines=len(lines),
+        loaded_count=len(comments),
+        failed_count=len(errors),
+        comments=comments,
+        errors=errors,
     )
