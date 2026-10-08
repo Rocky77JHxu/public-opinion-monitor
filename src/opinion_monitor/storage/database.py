@@ -22,13 +22,15 @@ from opinion_monitor.models import (
     CleanItem,
     CommentRecord,
     DiscardedItem,
+    LLMAnalysisResult,
     LLMAnalysisRun,
     ProcessingResult,
     RawItem,
+    ScoringRunResult,
 )
 from opinion_monitor.models.enums import HotSearchPlatform, MediaCrawlerPlatform
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_crawler_tasks (
@@ -184,6 +186,21 @@ CREATE TABLE IF NOT EXISTS llm_analysis_results (
     clean_item_id TEXT PRIMARY KEY REFERENCES clean_items(id) ON DELETE CASCADE,
     result_json TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS risk_assessments (
+    clean_item_id TEXT PRIMARY KEY REFERENCES clean_items(id) ON DELETE CASCADE,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS structured_output_events (
+    event_id TEXT PRIMARY KEY,
+    clean_item_id TEXT NOT NULL UNIQUE REFERENCES clean_items(id) ON DELETE CASCADE,
+    event_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 """
 
@@ -574,6 +591,8 @@ class SqliteStorage:
                 "processing_item_decisions",
                 "llm_analysis_audits",
                 "llm_analysis_results",
+                "risk_assessments",
+                "structured_output_events",
             )
             return {
                 table: int(
@@ -710,3 +729,89 @@ class SqliteStorage:
                         now,
                     ),
                 )
+
+    def get_llm_analysis_result(self, clean_item_id: UUID | str) -> LLMAnalysisResult | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT result_json FROM llm_analysis_results WHERE clean_item_id = ?",
+                (str(clean_item_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return LLMAnalysisResult.model_validate_json(row["result_json"])
+
+    def list_raw_items_for_clean_item(self, clean_item_id: UUID | str) -> list[RawItem]:
+        query = """
+            SELECT r.* FROM raw_items r
+            JOIN clean_item_sources s ON s.raw_item_id = r.id
+            WHERE s.clean_item_id = ?
+            ORDER BY s.rowid
+        """
+        with self._connect() as connection:
+            rows = connection.execute(query, (str(clean_item_id),)).fetchall()
+        return [self._row_to_raw(row) for row in rows]
+
+    def list_clean_items_ready_for_scoring(self) -> list[CleanItem]:
+        query = """
+            SELECT c.* FROM clean_items c
+            JOIN llm_analysis_results a ON a.clean_item_id = c.id
+            LEFT JOIN risk_assessments r ON r.clean_item_id = c.id
+            WHERE r.clean_item_id IS NULL
+            ORDER BY c.collected_at, c.id
+        """
+        with self._connect() as connection:
+            rows = connection.execute(query).fetchall()
+            result: list[CleanItem] = []
+            for row in rows:
+                source_rows = connection.execute(
+                    """
+                    SELECT raw_item_id FROM clean_item_sources
+                    WHERE clean_item_id = ? ORDER BY rowid
+                    """,
+                    (row["id"],),
+                ).fetchall()
+                result.append(
+                    self._row_to_clean(
+                        row,
+                        [UUID(source_row["raw_item_id"]) for source_row in source_rows],
+                    )
+                )
+        return result
+
+    def save_scoring_run(self, run: ScoringRunResult) -> None:
+        now = datetime.now().isoformat()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO risk_assessments (
+                    clean_item_id, result_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(clean_item_id) DO UPDATE SET
+                    result_json = excluded.result_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    str(run.clean_item_id),
+                    run.assessment.model_dump_json(),
+                    run.assessment.created_at.isoformat(),
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO structured_output_events (
+                    event_id, clean_item_id, event_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(event_id) DO UPDATE SET
+                    clean_item_id = excluded.clean_item_id,
+                    event_json = excluded.event_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    str(run.event.event_id),
+                    str(run.clean_item_id),
+                    run.event.model_dump_json(),
+                    run.event.created_at.isoformat(),
+                    now,
+                ),
+            )

@@ -213,6 +213,8 @@ scoring:
   normalization:
     min: 0
     max: 100
+  # LLM 分类置信度低于该值时进入人工复核，不自动升级处置结论。
+  manual_review_confidence: 0.6
   weights:
     keyword_category: 0.25
     source: 0.10

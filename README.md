@@ -1,6 +1,6 @@
 # 舆情监测系统
 
-本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 5：LLM 分析基线** 阶段。MediaCrawler 已固定接入，SQLite 原始层 / 评论证据 / 清洗层已实现，LLM Responses API 客户端、严格 JSON Schema、版本化 Prompt、结构化输出校验、地域提取、情感分析与风险建议基线已可用；未启动常驻爬取任务。
+本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 6：综合评分与预警级别** 阶段。MediaCrawler 已固定接入，SQLite 原始层 / 评论证据 / 清洗层 / LLM 分析层已实现，Responses API 严格结构化输出、地域提取、情感分析、风险建议、综合评分、预警级别与结构化事件基线已可用；未启动常驻爬取任务。
 
 ## 系统定位
 
@@ -53,18 +53,20 @@
 - 预警分类、地域实体、评论情感与风险建议 Prompt。
 - LLM 调用审计与结果入库。
 - `preview-llm-analysis`、`run-llm-analysis` CLI。
+- 六分项综合评分：规则分类、来源、热度、LLM 分类、情感与 LLM 风险。
+- 预警级别分类：红色、橙色、蓝色、归档。
+- 低置信度、规则 / LLM 冲突与缺少情感证据的人工复核标记。
+- 评分配置版本指纹与分项证据解释。
+- 风险研判与结构化输出事件持久化。
+- `preview-risk-assessment`、`run-risk-assessment` CLI。
 - `plan-mediacrawler` 与 `load-mediacrawler` CLI 子命令。
 - 五个平台的合成 fixture 与回归测试。
 
 尚未实现：
 
 - 常驻调度器。
-- 原始数据持久化。
 - MediaCrawler 常驻调度与 PostgreSQL 存储。
 - LLM 批量并发调用、结果缓存与质量评测集。
-- 清洗与去重。
-- LLM 分析模块。
-- 评分流水线。
 - 钉钉 Webhook 客户端。
 
 ## 开发环境
@@ -86,6 +88,7 @@ uv run opinion-monitor show-config --format json
 uv run opinion-monitor collect-hotsearch --platform weibo
 uv run opinion-monitor plan-mediacrawler --source keyword
 uv run opinion-monitor preview-llm-analysis
+uv run opinion-monitor preview-risk-assessment
 uv run opinion-monitor init-db
 uv run opinion-monitor ingest-mediacrawler-task --help
 uv run opinion-monitor run-mediacrawler --help

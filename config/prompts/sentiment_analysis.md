@@ -8,6 +8,7 @@
 
 API 请求会注入严格 JSON Schema，输出必须完全符合该 Schema。
 `distribution` 必须包含 Schema 中列出的每一个情感类别；没有样本归入该类别时填 `0.0`。
+`sentiment_score` 必须是 0-100 的风险化情感强度分，不是 0-1 比例；例如 68 表示中等偏强，100 表示最强。
 `uncertainty` 无内容时输出 `null`。
 
 输出结构示例：

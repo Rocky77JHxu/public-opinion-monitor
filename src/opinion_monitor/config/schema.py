@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import re
-from enum import StrEnum
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -15,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from opinion_monitor.models.enums import (
     AlertCategory,
+    AlertLevel,
     HotSearchPlatform,
     MediaCrawlerPlatform,
 )
@@ -32,13 +32,6 @@ class StrictModel(BaseModel):
     """禁止未知字段的模型基类。"""
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
-
-
-class AlertLevel(StrEnum):
-    RED = "red"
-    ORANGE = "orange"
-    BLUE = "blue"
-    ARCHIVE = "archive"
 
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -381,6 +374,7 @@ class ScoringWeightsConfig(StrictModel):
 class ScoringConfig(StrictModel):
     normalization: ScoringNormalizationConfig
     weights: ScoringWeightsConfig
+    manual_review_confidence: Probability = 0.6
 
 
 class AlertLevelConfig(StrictModel):

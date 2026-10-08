@@ -30,6 +30,13 @@ class AlertCategory(StrEnum):
     OTHER = "other"
 
 
+class AlertLevel(StrEnum):
+    RED = "red"
+    ORANGE = "orange"
+    BLUE = "blue"
+    ARCHIVE = "archive"
+
+
 class SourceType(StrEnum):
     HOTSEARCH = "hotsearch"
     KEYWORD_SEARCH = "keyword_search"

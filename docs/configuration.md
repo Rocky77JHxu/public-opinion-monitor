@@ -170,6 +170,39 @@ uv run opinion-monitor preview-llm-analysis
 
 `enable_structured_output: true` 是推荐值，会发送 `text.format.type=json_schema` 与 `strict=true`。`false` 只用于兼容不支持 Structured Outputs 的服务，退回 `json_object`。
 
+## 综合评分配置
+
+评分权重与预警阈值：
+
+```yaml
+scoring:
+  normalization:
+    min: 0
+    max: 100
+  manual_review_confidence: 0.6
+  weights:
+    keyword_category: 0.25
+    source: 0.10
+    heat: 0.15
+    llm_category: 0.15
+    sentiment: 0.15
+    llm_risk: 0.20
+```
+
+`manual_review_confidence` 用于控制低置信度 LLM 分类的人工复核；该标记不会自动升级预警级别。
+
+预览评分：
+
+```bash
+uv run opinion-monitor --config config/config.local.yaml preview-risk-assessment
+```
+
+执行评分并入库：
+
+```bash
+uv run opinion-monitor --config config/config.local.yaml run-risk-assessment
+```
+
 ## MediaCrawler 安全开关
 
 MediaCrawler 使用许可已确认。示例配置允许显式执行，但仍要求 CLI 传入 `--execute`：

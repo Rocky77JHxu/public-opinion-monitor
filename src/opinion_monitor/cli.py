@@ -37,6 +37,7 @@ from opinion_monitor.config.schema import RootConfig
 from opinion_monitor.llm import LLMAnalysisService
 from opinion_monitor.models import HotSearchPlatform, MediaCrawlerPlatform
 from opinion_monitor.observability import configure_logging
+from opinion_monitor.scoring import RiskScoringService
 from opinion_monitor.storage import (
     SqliteStorage,
     ingest_and_process_media_crawler_task,
@@ -266,6 +267,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="显式调用 OpenAI-compatible 模型；未传时只预览",
     )
     run_llm.set_defaults(handler=run_llm_analysis)
+
+    preview_scoring = subparsers.add_parser(
+        "preview-risk-assessment",
+        help="预览综合评分、分项得分与预警级别；不写数据库",
+    )
+    preview_scoring.add_argument("--clean-item-id", default=None, help="CleanItem ID")
+    preview_scoring.add_argument(
+        "--all",
+        action="store_true",
+        help="预览全部已具备 LLM 分析结果的条目",
+    )
+    preview_scoring.add_argument("--limit", type=int, default=None, help="最多输出条数")
+    preview_scoring.set_defaults(handler=run_preview_risk_assessment)
+
+    run_scoring = subparsers.add_parser(
+        "run-risk-assessment",
+        help="生成综合评分、预警级别与结构化事件并入库",
+    )
+    run_scoring.add_argument("--clean-item-id", default=None, help="CleanItem ID")
+    run_scoring.add_argument(
+        "--all",
+        action="store_true",
+        help="处理全部尚无评分结果的条目",
+    )
+    run_scoring.add_argument("--limit", type=int, default=None, help="最多处理条数")
+    run_scoring.add_argument(
+        "--force",
+        action="store_true",
+        help="指定 CleanItem 或 --all 时允许覆盖已有评分",
+    )
+    run_scoring.set_defaults(handler=run_risk_assessment)
 
     return parser
 
@@ -564,6 +596,80 @@ def run_llm_analysis(args: argparse.Namespace) -> int:
         output.append(run.model_dump(mode="json"))
     print(json.dumps({"items": output}, ensure_ascii=False, indent=2))
     return 2 if failed else 0
+
+
+def _scoring_items_to_process(
+    storage: SqliteStorage,
+    args: argparse.Namespace,
+    *,
+    force: bool = False,
+) -> list[Any]:
+    if args.clean_item_id:
+        item = storage.get_clean_item(args.clean_item_id)
+        if item is None:
+            raise ConfigError(f"CleanItem 不存在：{args.clean_item_id}")
+        return [item]
+
+    items = (
+        storage.list_clean_items()
+        if force and getattr(args, "all", False)
+        else storage.list_clean_items_ready_for_scoring()
+    )
+    if getattr(args, "all", False):
+        if getattr(args, "limit", None) is not None and args.limit >= 0:
+            items = items[: args.limit]
+        return items
+    return items[:1]
+
+
+def _run_scoring(
+    args: argparse.Namespace,
+    *,
+    persist: bool,
+) -> int:
+    _environment, config = _environment_and_config(args)
+    storage = _sqlite_storage_from_config(config)
+    storage.initialise()
+    items = _scoring_items_to_process(storage, args, force=persist and args.force)
+    if not items:
+        print(json.dumps({"items": []}, ensure_ascii=False))
+        return 0
+
+    service = RiskScoringService(config)
+    output: list[dict[str, Any]] = []
+    failed = False
+    for item in items:
+        analysis = storage.get_llm_analysis_result(item.id)
+        if analysis is None:
+            failed = True
+            output.append(
+                {
+                    "clean_item_id": str(item.id),
+                    "status": "failed",
+                    "error": "缺少 LLM 分析结果，请先执行 run-llm-analysis --execute",
+                }
+            )
+            continue
+        raw_items = storage.list_raw_items_for_clean_item(item.id)
+        result = service.score(item, analysis, raw_items)
+        if persist:
+            storage.save_scoring_run(result)
+        output.append(
+            {
+                "status": "succeeded",
+                **result.model_dump(mode="json"),
+            }
+        )
+    print(json.dumps({"items": output}, ensure_ascii=False, indent=2))
+    return 2 if failed else 0
+
+
+def run_preview_risk_assessment(args: argparse.Namespace) -> int:
+    return _run_scoring(args, persist=False)
+
+
+def run_risk_assessment(args: argparse.Namespace) -> int:
+    return _run_scoring(args, persist=True)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -12,15 +12,24 @@ from opinion_monitor.models.analysis import (
 from opinion_monitor.models.clean import CleanItem, CommentRecord, DiscardedItem
 from opinion_monitor.models.enums import (
     AlertCategory,
+    AlertLevel,
     HotSearchPlatform,
     MediaCrawlerPlatform,
     SourceType,
 )
 from opinion_monitor.models.processing import ProcessingResult
 from opinion_monitor.models.raw import RawItem, utc_now
+from opinion_monitor.models.scoring import (
+    RiskAssessmentResult,
+    ScoreComponent,
+    ScoreComponentName,
+    ScoringRunResult,
+    StructuredOutputEvent,
+)
 
 __all__ = [
     "AlertCategory",
+    "AlertLevel",
     "CleanItem",
     "CommentRecord",
     "DiscardedItem",
@@ -34,7 +43,12 @@ __all__ = [
     "MediaCrawlerPlatform",
     "ProcessingResult",
     "RawItem",
+    "RiskAssessmentResult",
     "SentimentEvidence",
+    "ScoreComponent",
+    "ScoreComponentName",
+    "ScoringRunResult",
     "SourceType",
+    "StructuredOutputEvent",
     "utc_now",
 ]
