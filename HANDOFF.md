@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 6 已完成六分项综合评分、预警级别分类、人工复核标记、评分配置版本、可审计研判结果、结构化输出事件与 SQLite 持久化；真实数据已完成一条完整 LLM 分析与评分入库。
+建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 7 已完成钉钉自动化 Payload 构建、安全脱敏、dry-run、真实投递客户端、重试、响应校验、投递状态与逐次尝试台账；真实结构化事件已完成 Payload 预览与 dry-run 入库，真实 Webhook 冒烟因 URL 仍为占位符未发出外部请求。
 
 ## 更新时间
 
@@ -24,6 +24,7 @@
 - Phase 5 结构化输出增强已验证并提交，提交为 `04cf935`，随本次交接更新一起推送。
 - 2026-10-09 最小真实 Structured Outputs 冒烟成功，无请求失败。
 - Phase 6 已验证并提交，提交为 `c2fe1f9`，待随本次交接更新一起推送。
+- Phase 7 已验证并提交，提交为 `0dd8add`，待随本次交接更新一起推送。
 
 ## 已完成工作
 
@@ -792,9 +793,176 @@ Phase 3 验证结果：
 - 示例配置严格环境变量校验通过。
 - 实现提交：`c2fe1f9`
 
+## Phase 7 实现
+
+### 钉钉契约调研
+
+- 已阅读钉钉开放平台《Webhook 同步数据》文档。
+- 确认：
+  - 钉钉自动化 Webhook 接收外部系统推送的 JSON 对象。
+  - 自动化流程可在钉钉内解析字段、格式化群消息并通知责任人或群组。
+  - 可配置触发关键词，请求体需要包含该关键词。
+  - “源数据解析”模式可接收钉钉机器人兼容消息结构，例如 Markdown。
+  - Webhook 地址等同等密钥，不得泄露。
+- 文档：
+  - `https://open.dingtalk.com/document/connection/webhook-sync-data`
+
+### 领域模型
+
+- 新增：
+  - `DingTalkAutomationPayload`
+  - `DingTalkDeliveryRecord`
+  - `DingTalkDeliveryAttempt`
+  - `DingTalkDeliveryResult`
+- 支持状态：
+  - `running`
+  - `succeeded`
+  - `failed`
+  - `dry_run`
+  - `skipped`
+- 记录：
+  - Payload 哈希。
+  - 完整脱敏 Payload。
+  - HTTP 状态码。
+  - 响应体。
+  - 错误原因。
+  - 尝试次数。
+  - 是否即时。
+  - 是否 dry-run。
+
+### Payload 格式化
+
+- 支持 `automation_json`：
+  - `schema_version=1`
+  - `event_type=opinion_monitor.alert`
+  - `keyword=舆情预警`
+  - `event_id`
+  - `trace_id`
+  - `dedup_key`
+  - `occurred_at`
+  - `data=StructuredOutputEvent`
+- 支持 `markdown`：
+  - 钉钉机器人兼容 `msgtype=markdown`。
+  - 包含预警级别、标题、得分、分类、平台、摘要、情感、风险因素、建议动作、追踪 ID 与来源链接。
+- 新增配置：
+  - `output.dingtalk.trigger_keyword`
+- 关键词会写入 automation JSON 与 Markdown 标题 / 正文。
+
+### 安全策略
+
+- 真实请求前校验 Webhook URL。
+- 默认拒绝：
+  - 内网地址。
+  - 回环地址。
+  - 链路本地地址。
+  - 未指定地址。
+  - 组播与保留地址。
+- 禁止跟随重定向。
+- 支持配置 SSL 校验开关。
+- Payload 构建前脱敏：
+  - 中国大陆手机号。
+  - 18 位身份证号。
+  - `author_id` / `user_id` 类字段。
+- Webhook URL 只从环境变量读取，不写入 YAML、日志或 CLI 输出。
+
+### Webhook 客户端
+
+- 使用 `httpx` 直接 POST JSON。
+- 支持超时。
+- 支持最大重试次数与固定退避。
+- 可重试状态：
+  - 408 / 425 / 429 / 500 / 502 / 503 / 504。
+- 其余 4xx 不重试。
+- HTTP 2xx 后继续校验业务响应：
+  - `errcode` 非零失败。
+  - `code` 非零失败。
+  - `success=false` 失败。
+  - `status=failed/error/fail` 失败。
+  - 空 Body、`ok`、`success` 纯文本可接受。
+  - 非法 JSON 失败。
+- 显式识别 `.env` 占位符 `replace-me`。
+
+### SQLite 持久化
+
+- Schema version 从 3 升级为 4。
+- 新增：
+  - `dingtalk_deliveries`
+  - `dingtalk_delivery_attempts`
+- `dingtalk_deliveries` 按事件幂等记录最终状态。
+- `dingtalk_delivery_attempts` 保存每次真实请求或 dry-run。
+- 重试尝试序号从既有 `attempt_count` 后继续。
+- 只有 `status=succeeded` 表示真实成功，后续默认不重复投递。
+
+### CLI
+
+- 新增：
+  - `preview-dingtalk-output`
+  - `send-dingtalk-output`
+- 支持：
+  - `--event-id`
+  - `--all`
+  - `--limit`
+  - `--include-queued`
+  - `--force`
+  - `--execute`
+- 默认 dry-run。
+- 只有显式 `--execute` 才发起真实 HTTP 请求。
+- 预览不发送请求、不写台账。
+- dry-run 会写投递状态与尝试记录。
+
+### 真实结构化事件验证
+
+- 已完成本地 SQLite Schema 3 -> 4 迁移。
+- 事件：
+  - `929819bf-7fbc-59a2-aba8-1756e79a05e5`
+- 预警级别：
+  - `blue`
+- 发送模式：
+  - `automation_json`
+- Payload SHA-256：
+  - `8479057d280d3caf087b0066d5da160f9e9aa3e4d5b04fb39ff1d5e0d77596c2`
+- Payload 顶层字段完整：
+  - `schema_version`
+  - `event_type`
+  - `keyword`
+  - `event_id`
+  - `trace_id`
+  - `dedup_key`
+  - `occurred_at`
+  - `data`
+- dry-run 状态：成功。
+- 当前真实库状态：
+  - `dingtalk_deliveries=1`
+  - `dingtalk_delivery_attempts=1`
+
+### 真实 Webhook 冒烟尝试
+
+- 构造了无敏感契约测试事件：
+  - 标题：`舆情预警 Webhook 契约测试`
+  - 级别：`orange`
+  - 只写入 `/tmp/opinion-dingtalk-smoke.db`，不进入生产库。
+- 尝试真实发送时，客户端发现：
+  - `.env` 中 `DINGTALK_AUTOMATION_WEBHOOK_URL` 仍为 `replace-me`。
+- 结果：
+  - 状态：`failed`
+  - 错误：Webhook URL 仍是占位符。
+  - 未向外部服务发出请求。
+  - 无敏感测试事件未泄露。
+  - 该失败记录只存在于 `/tmp` 冒烟库。
+- 需要用户提供或替换真实钉钉自动化 Webhook URL 后重试。
+
+### Phase 7 验证结果
+
+- 测试：`105 passed`
+- Ruff：`All checks passed!`
+- Mypy：`Success: no issues found in 60 source files`
+- 示例配置严格环境变量校验通过。
+- 实现提交：`0dd8add`
+- 新增文档：`docs/dingtalk-output.md`
+
 ## 当前阻塞点
 
-1. 尚未测试钉钉自动化 Webhook 的真实 Payload 契约。
+1. `.env` 中钉钉 Webhook URL 仍为 `replace-me`，真实契约冒烟被阻塞。
 2. 尚未实现 PostgreSQL 存储。
 3. 尚未实现常驻调度器。
 4. 尚未对其余 5 条 CleanItem 执行完整 LLM 分析与评分。
@@ -802,10 +970,10 @@ Phase 3 验证结果：
 
 ## 紧接着的后续步骤
 
-1. 推送 Phase 6 实现与交接更新。
-2. 进入 Phase 7：读取结构化事件，实现钉钉自动化输出、重试与投递台账。
-3. 用无敏感测试 Payload 验证钉钉自动化 Webhook。
-4. 实现常驻调度器。
+1. 用户将 `.env` 的 `DINGTALK_AUTOMATION_WEBHOOK_URL` 从 `replace-me` 替换为真实 Webhook URL。
+2. 重试无敏感契约测试事件，确认钉钉自动化流程可解析 `automation_json` 字段。
+3. 用真实结构化事件执行一次 `--execute` 投递并检查钉钉侧消息。
+4. 进入 Phase 8：端到端编排与定时试运行。
 
 ## 阶段实施计划
 
@@ -815,7 +983,7 @@ Phase 3 验证结果：
 4. **Phase 4**：清洗、日期过滤、URL / 内容去重与状态仓储。已完成。
 5. **Phase 5**：OpenAI 兼容 Responses API 与严格结构化输出。基线、最小冒烟与一条完整四任务真实分析已完成。
 6. **Phase 6**：评分、预警级别分类与可解释记录。已完成一条真实数据端到端评分入库。
-7. **Phase 7**：钉钉自动化输出、重试与投递台账。
+7. **Phase 7**：钉钉自动化输出、重试与投递台账。代码基线与真实事件 dry-run 已完成，真实 Webhook URL 待替换。
 8. **Phase 8**：端到端与定时试运行。
 
 ## 关键决策
