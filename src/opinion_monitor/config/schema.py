@@ -6,13 +6,14 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from opinion_monitor.models.enums import HotSearchPlatform
+from opinion_monitor.models.enums import HotSearchPlatform, MediaCrawlerPlatform
 
 PositiveInt = Annotated[int, Field(ge=1)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
@@ -27,16 +28,6 @@ class StrictModel(BaseModel):
     """禁止未知字段的模型基类。"""
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
-
-
-class MediaCrawlerPlatform(StrEnum):
-    XHS = "xhs"
-    DOUYIN = "dy"
-    KUAISHOU = "ks"
-    BILIBILI = "bili"
-    WEIBO = "wb"
-    TIEBA = "tieba"
-    ZHIHU = "zhihu"
 
 
 class AlertCategory(StrEnum):
@@ -243,6 +234,26 @@ class MediaCrawlerConfig(StrictModel):
     enable_sub_comments: bool
     max_concurrency: PositiveInt
     max_sleep_seconds: NonNegativeInt
+    allow_execution: bool = False
+    license_accepted: bool = False
+    pinned_ref: str = ""
+    task_timeout_seconds: PositiveInt = 1800
+    command_name: str = "uv"
+    entrypoint: str = "main.py"
+    task_dir: str = "data/media_crawler/tasks"
+
+    @model_validator(mode="after")
+    def check_execution_safety(self) -> MediaCrawlerConfig:
+        if self.allow_execution and not self.license_accepted:
+            msg = "mediacrawler.license_accepted 必须为 true 才能允许执行"
+            raise ValueError(msg)
+        if self.allow_execution and not self.pinned_ref:
+            msg = "mediacrawler.pinned_ref 不能为空才能允许执行"
+            raise ValueError(msg)
+        if self.allow_execution and not re.fullmatch(r"[0-9a-f]{40}", self.pinned_ref):
+            msg = "mediacrawler.pinned_ref 必须是 40 位小写 Git commit SHA"
+            raise ValueError(msg)
+        return self
 
 
 class DateFilterConfig(StrictModel):

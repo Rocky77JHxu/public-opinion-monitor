@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 2 已完成统一原始条目、热搜 HTTP 客户端、五个平台解析器、失败隔离编排器与 CLI；尚未执行真实平台探针，也未启动常驻采集。
+建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 3 已完成 MediaCrawler 任务构建、隔离命令计划、安全执行门槛、JSONL 结果加载与 RawItem 映射；默认禁止执行，未引入上游源码，未启动真实采集。
 
 ## 更新时间
 
@@ -16,7 +16,8 @@
 - 原英文基线提交已从 `main` 历史中回撤。
 - 当前基线为无旧历史的中文提交。
 - Phase 1 已提交推送，提交为 `76da3d9`。
-- Phase 2 已验证、提交并推送，提交为 `00306f1`。
+- Phase 2 已验证、提交并推送，提交为 `00306f1`，后续解析修复提交为 `9eb051e`。
+- Phase 3 变更已完成并待提交推送。
 
 ## 已完成工作
 
@@ -78,6 +79,46 @@
 - 添加环境变量模板与忽略规则。
 - 添加中文项目文档与交接文档。
 - 完成中文文档重建、验证、重新提交与远端历史替换。
+
+### Phase 3 实现
+
+- 将 `MediaCrawlerPlatform` 移入领域枚举，`RawItem.platform` 同时支持热搜平台与 MediaCrawler 平台。
+- 新增 `MediaCrawlerTask`：
+  - 稳定 UUIDv5 任务 ID。
+  - 支持关键词检索与指定账号。
+  - 支持搜索、创作者、详情采集类型。
+  - 包含条目上限、评论上限、超时、工作区、输入文件与输出文件。
+- 新增任务构建器：
+  - `build_keyword_tasks`
+  - `build_account_tasks`
+  - 按启用层级、平台、关键词生成任务。
+  - 按启用账号配置生成任务。
+- 新增 `MediaCrawlerCommandPlan`：
+  - 不使用 shell。
+  - 使用参数数组。
+  - 显式传入平台、登录方式、采集类型、关键词 / 账号 ID、条数、评论数、并发数与保存路径。
+- 已根据上游 `cmd_arg/arg.py` 核对当前 CLI 参数。
+- 新增 `MediaCrawlerRunner`：
+  - 默认 `allow_execution=false`，只生成计划。
+  - 实际执行前要求许可证审批标记与 40 位 commit SHA。
+  - 校验第三方目录、入口文件与 Git HEAD。
+  - 独立任务工作区。
+  - stdout / stderr 落盘。
+  - 超时 terminate / kill。
+- 新增 JSONL 结果加载器：
+  - 逐行解析。
+  - 单行失败不丢弃整个文件。
+  - 字段别名映射。
+  - 时间统一 UTC。
+  - 互动指标规范化。
+  - 保留原始记录。
+  - 生成统一 `RawItem`。
+- 新增任务目录 JSONL 文件发现函数。
+- 新增 CLI：
+  - `plan-mediacrawler`
+  - `load-mediacrawler`
+- 增加人工合成 MediaCrawler JSONL fixture。
+- 未引入上游源码；许可证与合规审查仍未完成。
 
 ### Phase 2 实现
 
@@ -184,6 +225,12 @@ Phase 2 验证结果：
 
 以上结果为 Phase 1 中文基线后的完整验证结果。
 
+Phase 3 验证结果：
+
+- 测试：`45 passed`
+- Ruff：`All checks passed!`
+- Mypy：`Success: no issues found in 30 source files`
+
 ## 当前阻塞点
 
 1. 尚未进行真实热搜接口连通性测试。
@@ -203,7 +250,7 @@ Phase 2 验证结果：
 
 1. **Phase 1**：配置模型、环境变量展开、日志与 CLI。已完成。
 2. **Phase 2**：热搜采集器与解析 fixture。核心实现已完成，真实接口探针未执行。
-3. **Phase 3**：MediaCrawler 任务构建、执行、结果加载与平台映射。
+3. **Phase 3**：MediaCrawler 任务构建、执行、结果加载与平台映射。主系统侧基线已完成，真实执行待合规审查与固定版本引入。
 4. **Phase 4**：清洗、日期过滤、URL / 内容去重与状态仓储。
 5. **Phase 5**：OpenAI 兼容客户端与受控 JSON 分析。
 6. **Phase 6**：评分、预警级别分类与可解释记录。

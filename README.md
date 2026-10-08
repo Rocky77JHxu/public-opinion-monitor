@@ -1,6 +1,6 @@
 # 舆情监测系统
 
-本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 2：热搜采集基线** 阶段，尚未接入 MediaCrawler，也未启动常驻爬取任务。
+本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 3：MediaCrawler 集成基线** 阶段。任务构建、命令计划、隔离 Runner 与 JSONL 结果加载已完成；默认禁止执行，未启动常驻爬取任务。
 
 ## 系统定位
 
@@ -40,13 +40,17 @@
 - 热搜 HTTP 客户端、公共地址校验、超时与重试。
 - 单平台失败隔离的采集编排器。
 - `collect-hotsearch` CLI 子命令。
+- MediaCrawler 关键词 / 账号任务构建器。
+- MediaCrawler 隔离命令计划与安全执行门槛。
+- MediaCrawler JSONL 结果发现、加载与字段归一化。
+- `plan-mediacrawler` 与 `load-mediacrawler` CLI 子命令。
 - 五个平台的合成 fixture 与回归测试。
 
 尚未实现：
 
 - 常驻调度器。
 - 原始数据持久化。
-- MediaCrawler 集成。
+- MediaCrawler 真实执行与固定版本 vendoring / submodule 引入。
 - 清洗与去重。
 - LLM 分析模块。
 - 评分流水线。
@@ -69,6 +73,8 @@ uv run opinion-monitor validate-config
 uv run opinion-monitor inspect-env
 uv run opinion-monitor show-config --format json
 uv run opinion-monitor collect-hotsearch --platform weibo
+uv run opinion-monitor plan-mediacrawler --source keyword
+uv run opinion-monitor load-mediacrawler --help
 ```
 
 本地测试前先复制环境变量模板：

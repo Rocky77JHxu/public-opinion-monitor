@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from opinion_monitor.models.enums import HotSearchPlatform
+from opinion_monitor.models.enums import HotSearchPlatform, MediaCrawlerPlatform
 
 
 def utc_now() -> datetime:
@@ -32,7 +32,7 @@ class RawItem(BaseModel):
         "keyword_search",
         "account",
     ]
-    platform: HotSearchPlatform
+    platform: HotSearchPlatform | MediaCrawlerPlatform
     external_id: str | None = None
     title: str = Field(min_length=1)
     content: str | None = None

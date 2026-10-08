@@ -1,0 +1,5 @@
+{"note_id":"note-1","title":"示例采集标题一","desc":"示例正文一","note_url":"https://example.test/note/1","user_id":"user-1","nickname":"示例作者","publish_time":1760000000,"liked_count":"12,345","comment_count":67,"share_count":8,"read_count":9}
+{"note_id":"note-2","title":"示例采集标题二","description":"示例正文二","url":"https://example.test/note/2","publish_time":"2026-10-08T10:00:00+08:00","digg_count":45}
+{"note_id":"note-3","desc":"缺少标题但可用正文作为标题"}
+{"note_id":"bad","title":"有效标题","publish_time":"not-a-time"}
+{"invalid_json":}

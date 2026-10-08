@@ -147,6 +147,28 @@ uv run opinion-monitor show-config --format yaml
 
 以 `_env` 结尾的字段只包含变量名，不包含秘密值，因此会正常显示。
 
+## MediaCrawler 安全开关
+
+示例配置默认只生成任务与命令计划，不执行采集：
+
+```yaml
+mediacrawler:
+  allow_execution: false
+  license_accepted: false
+  pinned_ref: ""
+```
+
+若要在受控部署中执行，必须同时配置：
+
+```yaml
+mediacrawler:
+  allow_execution: true
+  license_accepted: true
+  pinned_ref: "40位小写git-commit-sha"
+```
+
+即使开关打开，Runner 也会校验 `third_party/MediaCrawler` 的实际 `HEAD` 与 `pinned_ref` 是否一致。版本不匹配时拒绝执行。
+
 ## 日志
 
 配置项：

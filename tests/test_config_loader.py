@@ -121,3 +121,19 @@ def test_redacts_sensitive_keys_recursively() -> None:
         "nested": {"webhook_url": "***已遮蔽***", "name": "公开值"},
         "items": [{"password": "***已遮蔽***"}],
     }
+
+
+def test_mediacrawler_execution_requires_license_and_commit(tmp_path: Path) -> None:
+    document = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    document["mediacrawler"]["allow_execution"] = True
+    path = tmp_path / "unsafe.yaml"
+    path.write_text(yaml.safe_dump(document, allow_unicode=True), encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="license_accepted"):
+        load_config(path, env={})
+
+    document["mediacrawler"]["license_accepted"] = True
+    document["mediacrawler"]["pinned_ref"] = "not-a-commit"
+    path.write_text(yaml.safe_dump(document, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(ConfigError, match="40 位小写"):
+        load_config(path, env={})

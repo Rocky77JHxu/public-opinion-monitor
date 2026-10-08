@@ -14,6 +14,13 @@ import yaml
 
 from opinion_monitor import __version__
 from opinion_monitor.collectors.hotsearch import HotSearchCollector
+from opinion_monitor.collectors.mediacrawler import (
+    MediaCrawlerLoadContext,
+    MediaCrawlerRunner,
+    build_account_tasks,
+    build_keyword_tasks,
+    load_jsonl,
+)
 from opinion_monitor.config import (
     ConfigError,
     build_environment,
@@ -24,7 +31,7 @@ from opinion_monitor.config import (
     redact_sensitive_values,
 )
 from opinion_monitor.config.schema import RootConfig
-from opinion_monitor.models import HotSearchPlatform
+from opinion_monitor.models import HotSearchPlatform, MediaCrawlerPlatform
 from opinion_monitor.observability import configure_logging
 
 DEFAULT_CONFIG_PATH = Path("config/config.example.yaml")
@@ -115,6 +122,56 @@ def build_parser() -> argparse.ArgumentParser:
     )
     collect_hotsearch.set_defaults(handler=run_collect_hotsearch)
 
+    plan_mediacrawler = subparsers.add_parser(
+        "plan-mediacrawler",
+        help="生成 MediaCrawler 任务与隔离命令计划；不执行采集",
+    )
+    plan_mediacrawler.add_argument(
+        "--source",
+        choices=["keyword", "account", "all"],
+        default="all",
+        help="任务来源",
+    )
+    plan_mediacrawler.add_argument(
+        "--platform",
+        action="append",
+        choices=[platform.value for platform in MediaCrawlerPlatform],
+        help="只保留指定平台；可重复传入",
+    )
+    plan_mediacrawler.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="最多输出的任务数",
+    )
+    plan_mediacrawler.set_defaults(handler=run_plan_mediacrawler)
+
+    load_mediacrawler = subparsers.add_parser(
+        "load-mediacrawler",
+        help="加载 MediaCrawler JSONL 并输出统一 RawItem",
+    )
+    load_mediacrawler.add_argument("--path", type=Path, required=True, help="JSONL 文件路径")
+    load_mediacrawler.add_argument(
+        "--task-id",
+        required=True,
+        help="产生该文件的任务 ID",
+    )
+    load_mediacrawler.add_argument(
+        "--platform",
+        required=True,
+        choices=[platform.value for platform in MediaCrawlerPlatform],
+    )
+    load_mediacrawler.add_argument(
+        "--source-type",
+        required=True,
+        choices=["keyword_search", "account"],
+    )
+    load_mediacrawler.add_argument("--keyword", default=None)
+    load_mediacrawler.add_argument("--keyword-level", type=int, default=None)
+    load_mediacrawler.add_argument("--account-config-id", default=None)
+    load_mediacrawler.add_argument("--limit", type=int, default=None)
+    load_mediacrawler.set_defaults(handler=run_load_mediacrawler)
+
     return parser
 
 
@@ -190,9 +247,9 @@ def run_collect_hotsearch(args: argparse.Namespace) -> int:
     )
 
     if args.limit is not None and args.limit >= 0:
-        grouped: dict[HotSearchPlatform, list[int]] = {}
+        grouped: dict[str, list[int]] = {}
         for index, item in enumerate(result.items):
-            grouped.setdefault(item.platform, []).append(index)
+            grouped.setdefault(item.platform.value, []).append(index)
         keep: set[int] = set()
         for indexes in grouped.values():
             keep.update(indexes[: args.limit])
@@ -215,6 +272,51 @@ def run_collect_hotsearch(args: argparse.Namespace) -> int:
     if not successful or (args.fail_on_error and has_failure):
         return 2
     return 0
+
+
+def run_plan_mediacrawler(args: argparse.Namespace) -> int:
+    _environment, config = _environment_and_config(args)
+
+    tasks = []
+    if args.source in {"keyword", "all"}:
+        tasks.extend(build_keyword_tasks(config))
+    if args.source in {"account", "all"}:
+        tasks.extend(build_account_tasks(config))
+
+    if args.platform:
+        selected = {MediaCrawlerPlatform(platform) for platform in args.platform}
+        tasks = [task for task in tasks if task.platform in selected]
+    if args.limit is not None and args.limit >= 0:
+        tasks = tasks[: args.limit]
+
+    runner = MediaCrawlerRunner(config.mediacrawler)
+    payload = {
+        "allow_execution": config.mediacrawler.allow_execution,
+        "task_count": len(tasks),
+        "tasks": [
+            {
+                "task": task.model_dump(mode="json"),
+                "command": runner.build_plan(task).model_dump(mode="json"),
+            }
+            for task in tasks
+        ],
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_load_mediacrawler(args: argparse.Namespace) -> int:
+    context = MediaCrawlerLoadContext(
+        task_id=args.task_id,
+        platform=MediaCrawlerPlatform(args.platform),
+        source_type=args.source_type,
+        keyword=args.keyword,
+        keyword_level=args.keyword_level,
+        account_config_id=args.account_config_id,
+    )
+    result = load_jsonl(args.path, context, limit=args.limit)
+    print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
+    return 0 if result.loaded_count > 0 else 2
 
 
 def main(argv: Sequence[str] | None = None) -> int:
