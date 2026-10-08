@@ -11,6 +11,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
+SOURCE_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(SOURCE_ROOT))
+
+from opinion_monitor.collectors.mediacrawler.xhs_compat import (  # noqa: E402
+    patch_xhs_extractor,
+)
+
 _TRUE = {"1", "true", "yes", "y", "t"}
 
 
@@ -35,6 +42,10 @@ def main() -> None:
     upstream_root = Path.cwd()
     sys.path.insert(0, str(upstream_root))
     config: Any = __import__("config")
+    xhs_extractor: Any = __import__(
+        "media_platform.xhs.extractor", fromlist=["XiaoHongShuExtractor"]
+    )
+    patch_xhs_extractor(xhs_extractor)
 
     config.ENABLE_CDP_MODE = _env_bool("OPINION_MONITOR_ENABLE_CDP_MODE", True)
     config.CDP_CONNECT_EXISTING = _env_bool("OPINION_MONITOR_CDP_CONNECT_EXISTING", True)

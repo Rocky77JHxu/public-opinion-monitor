@@ -297,18 +297,57 @@ Phase 3 验证结果：
 - 账号配置：`provided_xhs_account`。
 - 任务 ID：`d69d4e3d-097b-5c43-bb07-992769afe5ac`。
 - 登录态：复用成功。
-- 重试次数：2 次。
-- 结果：两次均无 JSONL 输出。
-- 上游错误：
+- 初始重试次数：2 次。
+- 初始结果：两次均无 JSONL 输出。
+- 初始上游错误：
 
   ```text
   Failed to parse creator URL: Expecting value: line 1 column 59065
   ```
 
-- 初步判断：固定版本的小红书创作者主页 HTML 初始状态解析兼容性问题，或该一次性 `xsec_token` / 页面响应不可解析。
-- 已按约定在第二次失败后停止，不继续加压。
+- 初步判断：固定版本的小红书创作者主页 HTML 初始状态解析兼容性问题。
 - 主系统已补充零输出判定：上游返回码为 0 但没有内容 JSONL 时，集成结果将标记为 `failed`。
-- 后续需要用户提供新的账号主页链接，或在授权下为固定版本添加兼容性补丁后重试。
+
+### 小红书兼容性修复与账号复测
+
+- 用户提供本地修复版本：
+  - `/Users/rocky/WorkSpace/Personal/MediaCrawler`
+- 已对比本地修复中的 `media_platform/xhs/extractor.py` 与固定子模块。
+- 确认核心修复点：
+  - 非贪婪匹配 `window.__INITIAL_STATE__`。
+  - 支持 `undefined`、`NaN`、`Infinity`。
+  - 支持 `new Set([])`。
+  - 支持 `new Map([])`。
+  - 解析失败返回 `None`，不抛出 JSON 异常。
+- 新增主系统运行时兼容层：
+  - `src/opinion_monitor/collectors/mediacrawler/xhs_compat.py`
+- `upstream_entry.py` 启动时注入兼容层。
+- 不修改 `third_party/MediaCrawler` 固定子模块源码。
+- 新增兼容层测试：
+  - JavaScript 字面量解析。
+  - 非法状态返回 `None`。
+  - creator 信息提取。
+  - note 详情提取。
+- 使用兼容层复测同一账号任务，结果成功：
+  - 内容：5 条。
+  - 评论：8 条。
+  - 内容加载：`5 loaded, 0 failed`。
+  - 任务状态：`succeeded`。
+  - 任务耗时：约 45 秒。
+  - 账号内容作者显示为 `澎***闻`。
+- 复测输出：
+  - `creator_contents_2026-10-08.jsonl`
+  - `creator_comments_2026-10-08.jsonl`
+- 账号任务前 5 条标题：
+  1. 为改缓坡道，一名轮椅青年十年借力“移山”
+  2. 安妮·卡森：一个“不可归类”的写作者
+  3. 1.77亿港元成交！虞世南《积时帖》惊天复现
+  4. 一文了解📖诺贝尔文学奖得主安妮·卡森
+  5. 诺贝尔文学奖揭晓视频｜诗人安妮·卡森获奖
+- 评论分布：
+  - `6ac705d1000000001801aefc`: 1
+  - `6ac78a3a000000001500a835`: 3
+  - `6ac77f53000000001b01f426`: 4
 
 ### 冒烟后代码修正
 
@@ -320,7 +359,7 @@ Phase 3 验证结果：
 
 ## 当前阻塞点
 
-1. MediaCrawler 关键词真实冒烟已成功；账号采集仍因上游创作者页解析失败，需要新链接或兼容性补丁。
+1. MediaCrawler 关键词与指定账号真实冒烟均已成功。
 2. 尚未测试钉钉自动化 Webhook 的真实 Payload 契约。
 3. 尚未实现任务状态与原始数据持久化。
 4. 尚未实现常驻调度器。
@@ -329,8 +368,8 @@ Phase 3 验证结果：
 ## 紧接着的后续步骤
 
 1. 为 MediaCrawler 任务增加内容条数 watchdog，防止单页 20 条导致超出配置上限。
-2. 获取新的小红书账号主页链接，或评估是否为固定版本添加创作者页解析兼容性补丁。
-3. 进入 Phase 4：任务状态、原始条目与评论证据持久化。
+2. 进入 Phase 4：任务状态、原始条目与评论证据持久化。
+3. 为 MediaCrawler 任务增加内容条数 watchdog，防止单页 20 条导致超出配置上限。
 4. 实现日期过滤、URL 规范化、URL 去重与内容相似度去重。
 5. 用无敏感测试 Payload 验证钉钉自动化 Webhook。
 

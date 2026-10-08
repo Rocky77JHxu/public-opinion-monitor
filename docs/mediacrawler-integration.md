@@ -312,6 +312,33 @@ files = discover_jsonl_files("data/media_crawler/tasks/{task_id}")
 
 MediaCrawler 会按平台在子模块的 `browser_data` 目录中复用登录态。该目录位于子模块工作区内，不会被主仓库提交。
 
+## 小红书初始状态兼容层
+
+固定上游版本的小红书创作者页解析在部分页面中会遇到 JavaScript 字面量：
+
+```text
+undefined
+new Set([])
+new Map([])
+```
+
+主系统新增：
+
+```text
+src/opinion_monitor/collectors/mediacrawler/xhs_compat.py
+```
+
+该兼容层在 `upstream_entry.py` 启动时替换上游 `XiaoHongShuExtractor` 的解析方法：
+
+- 非贪婪提取 `window.__INITIAL_STATE__`。
+- 将 `undefined`、`NaN`、`Infinity` 转为 `null`。
+- 将空 `Set` / `Map` 转为 JSON 数组 / 对象。
+- 非法或风控页返回 `None`。
+- 不修改子模块源码。
+- 不绕过登录、验证码或平台限制。
+
+2026-10-08 已用同一账号链接复测成功，输出 5 条内容与 8 条评论。
+
 ## 任务 ID 策略
 
 任务 ID 使用确定性 UUIDv5，命名空间输入包含：
