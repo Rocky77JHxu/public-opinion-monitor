@@ -383,7 +383,7 @@ def run_mediacrawler(args: argparse.Namespace) -> int:
         MediaCrawlerIntegrationService(config.mediacrawler).run(
             task,
             execute=args.execute,
-            limit=args.limit,
+            limit=args.limit if args.limit is not None else task.max_items,
         )
     )
     print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))

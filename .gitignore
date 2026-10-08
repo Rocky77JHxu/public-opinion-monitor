@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+.test_command.sh
 
 # Local configuration
 config/config.local.yaml

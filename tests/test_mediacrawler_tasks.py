@@ -108,7 +108,7 @@ async def test_runner_builds_isolated_argv_without_shell() -> None:
         "--save_data_option",
         "jsonl",
         "--save_data_path",
-        task.workspace_dir,
+        str(Path(task.workspace_dir).resolve()),  # noqa: ASYNC240
         "--max_comments_count_singlenotes",
         "50",
         "--crawler_max_notes_count",
@@ -200,3 +200,39 @@ async def test_integration_service_loads_discovered_jsonl_after_success(
     assert result.run.status == "succeeded"
     assert len(result.output_files) == 1
     assert result.items[0].title == "集成测试标题"
+
+
+async def test_integration_service_marks_zero_output_as_failed(tmp_path: Path) -> None:
+    from opinion_monitor.collectors.mediacrawler import (
+        MediaCrawlerIntegrationService,
+        MediaCrawlerRunResult,
+        MediaCrawlerRunStatus,
+    )
+    from opinion_monitor.models import utc_now
+
+    config = base_config()
+    config.keyword_search.levels["level_1"].platforms = [MediaCrawlerPlatform.XHS]
+    config.keyword_search.levels["level_1"].keywords = ["示例关键词"]
+    task = build_keyword_tasks(config)[0]
+    task = task.model_copy(update={"workspace_dir": str(tmp_path)})
+
+    class NoOutputRunner:
+        def build_plan(self, task: MediaCrawlerTask) -> object:
+            return MediaCrawlerRunner(config.mediacrawler).build_plan(task)
+
+        async def run(self, task: MediaCrawlerTask, execute: bool) -> object:
+            return MediaCrawlerRunResult(
+                task_id=task.task_id,
+                status=MediaCrawlerRunStatus.SUCCEEDED,
+                started_at=utc_now(),
+                completed_at=utc_now(),
+                return_code=0,
+            )
+
+    result = await MediaCrawlerIntegrationService(
+        config.mediacrawler,
+        runner=NoOutputRunner(),  # type: ignore[arg-type]
+    ).run(task, execute=True)
+
+    assert result.run.status == "failed"
+    assert "未生成内容 JSONL" in (result.run.error or "")

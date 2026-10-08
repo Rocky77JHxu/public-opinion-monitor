@@ -72,7 +72,7 @@ class MediaCrawlerRunner:
             "--save_data_option",
             self._config.save_option,
             "--save_data_path",
-            task.workspace_dir,
+            str(Path(task.workspace_dir).resolve()),
             "--max_comments_count_singlenotes",
             str(task.max_comments),
             "--crawler_max_notes_count",
