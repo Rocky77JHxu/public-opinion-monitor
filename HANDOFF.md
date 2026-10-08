@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 5 已完成 OpenAI-compatible Responses API 客户端、严格 JSON Schema、版本化 Prompt、结构化输出校验、分类、地域实体、评论情感与风险建议分析，以及调用审计和结果入库；真实数据 Prompt 与 Schema 预览已通过，尚未调用真实模型。
+建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 5 已完成 OpenAI-compatible Responses API 客户端、严格 JSON Schema、版本化 Prompt、结构化输出校验、分类、地域实体、评论情感与风险建议分析，以及调用审计和结果入库；真实数据 Prompt 与 Schema 预览已通过，最小真实 Structured Outputs 冒烟已成功。
 
 ## 更新时间
 
@@ -22,6 +22,7 @@
 - Phase 4 已验证、提交并推送，提交为 `38577ee`。
 - Phase 5 已验证、提交并推送，提交为 `fe5e8cd`。
 - Phase 5 结构化输出增强已验证并提交，提交为 `04cf935`，随本次交接更新一起推送。
+- 2026-10-09 最小真实 Structured Outputs 冒烟成功，无请求失败。
 
 ## 已完成工作
 
@@ -651,9 +652,34 @@ Phase 3 验证结果：
 - 新增文档：`docs/llm-analysis.md`
 - Structured Outputs 增强提交：`04cf935`
 
+### Phase 5 真实 Structured Outputs 冒烟
+
+- 时间：2026-10-09，Asia/Shanghai。
+- 使用 `.env` 中已配置的：
+  - base URL
+  - API Key
+  - model
+- 请求端点：`/responses`。
+- 任务：`classification`。
+- CleanItem：`d87eb408-7518-53b6-9555-fa0d87ddd097`。
+- 请求格式：
+  - `text.format.type=json_schema`
+  - `text.format.strict=true`
+- 结果：请求成功，服务端支持严格结构化输出。
+- 模型输出：
+  - category：`sudden_event`
+  - confidence：`0.78`
+  - reason：标题提及“火灾警报器”及其未响，涉及可能的火灾或消防警情，符合突发事件预警特征。
+- Token 用量：
+  - prompt/input：530
+  - completion/output：124
+  - total：654
+- 无 HTTP 失败、拒答、未完成响应或 JSON 解析失败。
+- 冒烟结果未写入 `llm_analysis_audits` / `llm_analysis_results`。
+
 ## 当前阻塞点
 
-1. 尚未使用真实 OpenAI-compatible 服务执行 Phase 5 调用。
+1. 尚未执行完整 Phase 5 四任务真实分析入库。
 2. 尚未测试钉钉自动化 Webhook 的真实 Payload 契约。
 3. 尚未实现 PostgreSQL 存储。
 4. 尚未实现常驻调度器。
@@ -662,11 +688,10 @@ Phase 3 验证结果：
 
 ## 紧接着的后续步骤
 
-1. 推送 `04cf935` 与交接文档更新。
-2. 使用真实 OpenAI-compatible Responses API 执行一次最小模型冒烟，确认服务端支持 `json_schema + strict`。
-3. 进入 Phase 6：综合评分、预警级别分类与可解释审计记录。
-4. 用无敏感测试 Payload 验证钉钉自动化 Webhook。
-5. 实现常驻调度器。
+1. 如需补齐 Phase 5 审计证据，对指定 CleanItem 执行完整四任务分析并入库。
+2. 进入 Phase 6：综合评分、预警级别分类与可解释审计记录。
+3. 用无敏感测试 Payload 验证钉钉自动化 Webhook。
+4. 实现常驻调度器。
 
 ## 阶段实施计划
 
@@ -674,7 +699,7 @@ Phase 3 验证结果：
 2. **Phase 2**：热搜采集器与解析 fixture。已完成，并完成真实接口探针与 bilibili / 百度解析修正。
 3. **Phase 3**：MediaCrawler 任务构建、执行、结果加载与平台映射。固定版本、单任务执行、关键词真实冒烟已完成；账号采集待解析问题解决。
 4. **Phase 4**：清洗、日期过滤、URL / 内容去重与状态仓储。已完成。
-5. **Phase 5**：OpenAI 兼容 Responses API 与严格结构化输出。基线已完成，真实模型调用待执行。
+5. **Phase 5**：OpenAI 兼容 Responses API 与严格结构化输出。基线与最小真实冒烟已完成，完整四任务真实分析可选补齐。
 6. **Phase 6**：评分、预警级别分类与可解释记录。
 7. **Phase 7**：钉钉自动化输出、重试与投递台账。
 8. **Phase 8**：端到端与定时试运行。

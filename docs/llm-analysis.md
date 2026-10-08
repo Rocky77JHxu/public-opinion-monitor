@@ -423,3 +423,24 @@ CleanItem: d87eb408-7518-53b6-9555-fa0d87ddd097
 
 该预览没有调用外部模型，也没有消耗 Token。
 2026-10-09 的结构化输出增强再次预览成功，确认输出包含四个任务的严格响应 Schema。
+
+## Structured Outputs 冒烟
+
+2026-10-09 已使用 `.env` 中的真实 OpenAI-compatible 服务执行最小分类请求：
+
+```text
+endpoint: /responses
+task: classification
+strict: true
+format: json_schema
+```
+
+结果：
+
+- HTTP 请求成功。
+- 服务端接受 `json_schema + strict`。
+- 返回通过 JSON 解析与枚举校验的结构化结果。
+- 分类：`sudden_event`。
+- Token 用量：输入 530，输出 124，总计 654。
+
+该冒烟只执行一次分类调用，用于验证协议与结构化输出能力；结果未写入本地分析表。
