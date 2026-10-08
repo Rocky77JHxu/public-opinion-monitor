@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 5 已完成 OpenAI-compatible LLM 客户端、版本化 Prompt、结构化输出校验、分类、地域实体、评论情感与风险建议分析，以及调用审计和结果入库；真实数据 Prompt 预览已通过，尚未调用真实模型。
+建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 5 已完成 OpenAI-compatible Responses API 客户端、严格 JSON Schema、版本化 Prompt、结构化输出校验、分类、地域实体、评论情感与风险建议分析，以及调用审计和结果入库；真实数据 Prompt 与 Schema 预览已通过，尚未调用真实模型。
 
 ## 更新时间
 
@@ -21,6 +21,7 @@
 - MediaCrawler 固定版本接入与条数保护已提交推送，最新已推送提交为 `8b8fa52`。
 - Phase 4 已验证、提交并推送，提交为 `38577ee`。
 - Phase 5 已验证、提交并推送，提交为 `fe5e8cd`。
+- Phase 5 结构化输出增强已验证并提交，提交为 `04cf935`，随本次交接更新一起推送。
 
 ## 已完成工作
 
@@ -550,7 +551,8 @@ Phase 3 验证结果：
 
 ### OpenAI-compatible 客户端
 
-- 使用 `httpx` 直接调用 Chat Completions。
+- 使用 `httpx` 直接调用 Responses API：
+  - 端点：`POST {OPENAI_BASE_URL}/responses`。
 - 不依赖厂商 SDK。
 - 支持环境变量读取：
   - base URL
@@ -558,8 +560,25 @@ Phase 3 验证结果：
   - model
 - 支持超时与最大重试。
 - 408 / 425 / 429 / 5xx / 传输错误可重试。
-- 支持 `response_format=json_object`。
-- 支持剥离 Markdown JSON 代码块。
+- `enable_structured_output=true` 时发送：
+  - `text.format.type=json_schema`
+  - `text.format.strict=true`
+  - 每个任务独立 JSON Schema。
+- 请求前递归校验严格 Schema 约束：
+  - 对象 `additionalProperties=false`。
+  - 全部字段进入 `required`。
+  - 数组必须声明 `items`。
+- 输出解析支持：
+  - 顶层 SDK 风格 `output_text`。
+  - `output[].content[].output_text` 拼接。
+- 显式处理：
+  - `status=incomplete` 与 `incomplete_details.reason`。
+  - refusal。
+  - 缺少输出文本。
+  - 无效 JSON。
+- Token 用量优先映射 `input_tokens` / `output_tokens` / `total_tokens`，并兼容 Chat Completions 旧字段。
+- `enable_structured_output=false` 时仅作为兼容开关退回 `json_object`，不作为推荐模式。
+- 宽松模式仍支持剥离 Markdown JSON 代码块。
 - 不记录 API Key。
 - 可注入 `httpx.MockTransport` 进行测试。
 
@@ -576,6 +595,13 @@ Phase 3 验证结果：
 - 评论输入最多 `llm.max_input_comments` 条，默认 100。
 - 评论作者身份不进入 Prompt。
 - 无评论时不调用情感模型，生成 unknown 证据并保留不确定性。
+- 每个请求携带任务名与严格响应 Schema。
+- `LLMPromptRequest` 新增：
+  - `schema_name`
+  - `response_schema`
+- 情感 Schema 根据 `sentiment.categories` 动态生成：
+  - `distribution` 的全部键。
+  - `dominant_sentiment` 枚举。
 - 模型输出缺少字段或校验失败时记录失败审计。
 - LLM 分类与规则分类冲突时，LLM 结果独立保留，后续 Phase 6 评分时以 LLM 为准。
 
@@ -595,7 +621,7 @@ Phase 3 验证结果：
 - 新增：
   - `preview-llm-analysis`
   - `run-llm-analysis`
-- `preview-llm-analysis` 只构建 Prompt，不调用模型。
+- `preview-llm-analysis` 只构建 Prompt 与响应 Schema，不调用模型。
 - `run-llm-analysis` 默认仍只预览。
 - 只有显式传入 `--execute` 才调用模型。
 - 支持指定 CleanItem。
@@ -612,16 +638,18 @@ Phase 3 验证结果：
   - classification：`4e6b46fe6969`
   - geo_extraction：`27b881c82c4e`
   - risk_assessment：`d2b7d4a50d32`
-  - sentiment_analysis：`7e0075bbd558`
+  - sentiment_analysis：`717b0cc54c82`
 - 该预览未调用外部模型，未消耗 Token。
 - 当前 `llm_analysis_audits=0`、`llm_analysis_results=0`。
+- 结构化输出增强后再次预览成功，四个任务的 `response_schema.required` 均完整输出。
 
 ### Phase 5 验证结果
 
-- 测试：`75 passed`
+- 测试：`87 passed`
 - Ruff：`All checks passed!`
-- Mypy：`Success: no issues found in 51 source files`
+- Mypy：`Success: no issues found in 52 source files`
 - 新增文档：`docs/llm-analysis.md`
+- Structured Outputs 增强提交：`04cf935`
 
 ## 当前阻塞点
 
@@ -634,8 +662,9 @@ Phase 3 验证结果：
 
 ## 紧接着的后续步骤
 
-1. 进入 Phase 5：OpenAI 兼容客户端、结构化 JSON 输出、地域实体提取、分类与风险建议。
-3. 将评论证据按 CleanItem 聚合，为情感分析做准备。
+1. 推送 `04cf935` 与交接文档更新。
+2. 使用真实 OpenAI-compatible Responses API 执行一次最小模型冒烟，确认服务端支持 `json_schema + strict`。
+3. 进入 Phase 6：综合评分、预警级别分类与可解释审计记录。
 4. 用无敏感测试 Payload 验证钉钉自动化 Webhook。
 5. 实现常驻调度器。
 
@@ -645,7 +674,7 @@ Phase 3 验证结果：
 2. **Phase 2**：热搜采集器与解析 fixture。已完成，并完成真实接口探针与 bilibili / 百度解析修正。
 3. **Phase 3**：MediaCrawler 任务构建、执行、结果加载与平台映射。固定版本、单任务执行、关键词真实冒烟已完成；账号采集待解析问题解决。
 4. **Phase 4**：清洗、日期过滤、URL / 内容去重与状态仓储。已完成。
-5. **Phase 5**：OpenAI 兼容客户端与受控 JSON 分析。基线已完成，真实模型调用待执行。
+5. **Phase 5**：OpenAI 兼容 Responses API 与严格结构化输出。基线已完成，真实模型调用待执行。
 6. **Phase 6**：评分、预警级别分类与可解释记录。
 7. **Phase 7**：钉钉自动化输出、重试与投递台账。
 8. **Phase 8**：端到端与定时试运行。
