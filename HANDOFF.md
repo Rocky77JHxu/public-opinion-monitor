@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 5 已完成 OpenAI-compatible Responses API 客户端、严格 JSON Schema、版本化 Prompt、结构化输出校验、分类、地域实体、评论情感与风险建议分析，以及调用审计和结果入库；真实数据 Prompt 与 Schema 预览已通过，最小真实 Structured Outputs 冒烟已成功。
+建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 6 已完成六分项综合评分、预警级别分类、人工复核标记、评分配置版本、可审计研判结果、结构化输出事件与 SQLite 持久化；真实数据已完成一条完整 LLM 分析与评分入库。
 
 ## 更新时间
 
@@ -23,6 +23,7 @@
 - Phase 5 已验证、提交并推送，提交为 `fe5e8cd`。
 - Phase 5 结构化输出增强已验证并提交，提交为 `04cf935`，随本次交接更新一起推送。
 - 2026-10-09 最小真实 Structured Outputs 冒烟成功，无请求失败。
+- Phase 6 已验证并提交，提交为 `c2fe1f9`，待随本次交接更新一起推送。
 
 ## 已完成工作
 
@@ -639,9 +640,9 @@ Phase 3 验证结果：
   - classification：`4e6b46fe6969`
   - geo_extraction：`27b881c82c4e`
   - risk_assessment：`d2b7d4a50d32`
-  - sentiment_analysis：`717b0cc54c82`
+  - sentiment_analysis：`a4be50357479`（已补充 0-100 情感分标尺说明）
 - 该预览未调用外部模型，未消耗 Token。
-- 当前 `llm_analysis_audits=0`、`llm_analysis_results=0`。
+- 首次预览时 `llm_analysis_audits=0`、`llm_analysis_results=0`。
 - 结构化输出增强后再次预览成功，四个任务的 `response_schema.required` 均完整输出。
 
 ### Phase 5 验证结果
@@ -677,19 +678,132 @@ Phase 3 验证结果：
 - 无 HTTP 失败、拒答、未完成响应或 JSON 解析失败。
 - 冒烟结果未写入 `llm_analysis_audits` / `llm_analysis_results`。
 
+### Phase 5 完整四任务真实分析
+
+- 时间：2026-10-09，Asia/Shanghai。
+- CleanItem：`d87eb408-7518-53b6-9555-fa0d87ddd097`。
+- 评论样本：72 条。
+- 调用任务：classification、geo_extraction、risk_assessment、sentiment_analysis。
+- 调用状态：`succeeded`。
+- 调用次数：4。
+- Token 用量：输入 5752，输出 1245，总计 6997。
+- 输出摘要：
+  - category：`sudden_event`
+  - confidence：`0.82`
+  - risk_score：`68`
+  - dominant_sentiment：`positive`
+- 无 HTTP 失败、拒答、未完成响应或 JSON 解析失败。
+- 结果已写入本地库：`llm_analysis_audits=1`、`llm_analysis_results=1`。
+- 首次输出把 `sentiment_score` 写成 `0.68`，属于 0-1 比例而非 0-100 分。
+- 已修正：
+  - `config/prompts/sentiment_analysis.md` 明确 `sentiment_score` 必须为 0-100。
+  - Phase 6 评分服务对历史 `0 < score <= 1` 输出透明乘以 100，并记录 `raw_score` 与 `scale_normalized`。
+
+## Phase 6 实现
+
+### 领域模型
+
+- 新增 `ScoreComponent`、`RiskAssessmentResult`、`StructuredOutputEvent`、`ScoringRunResult` 与领域枚举 `AlertLevel`。
+- 每个分项保存原始分、权重、加权分、证据字段与解释文本。
+- 研判结果保存：
+  - LLM 最终分类与置信度。
+  - 规则分类与置信度。
+  - 分类冲突说明。
+  - 六个分项。
+  - 综合分数。
+  - 预警级别与理由。
+  - 人工复核状态与原因。
+  - 风险理由、关键因素、信息缺口、建议动作与不确定性。
+  - 模型名。
+  - 评分配置版本。
+
+### 评分服务
+
+- 新增 `RiskScoringService`。
+- 六个分项：
+  1. 关键词属性分类。
+  2. 来源权重。
+  3. 热度。
+  4. LLM 属性分类。
+  5. 评论情感。
+  6. LLM 风险建议。
+- 权重总和不等于 1 时由配置 Schema 拒绝。
+- 无热搜排名时使用 0 到 1,000,000 的确定性互动量对数基线。
+- 有热搜排名时使用排名 60% + 互动 / 热度值 40%，排名基线为前 50 名。
+- 指定账号优先使用账号配置权重；配置缺失时按普通社媒来源降权。
+- 规则与 LLM 分类冲突时最终分类采用 LLM。
+- 以下情况进入人工复核：
+  - LLM 置信度低于 `scoring.manual_review_confidence`。
+  - 规则分类与 LLM 分类冲突。
+  - 缺少评论情感证据。
+- 人工复核不会自动升级预警级别。
+
+### 结构化事件
+
+- `event_id` 由 CleanItem ID 派生，采用 UUIDv5，保证幂等。
+- `trace_id` 当前使用 CleanItem ID。
+- 包含标题、摘要、来源、平台、URL、最终分类、预警级别、综合分数、地域证据、情感摘要、关键风险因素、建议动作与不确定性说明。
+- 不包含自然人不必要身份信息，可直接作为 Phase 7 钉钉输出输入。
+
+### SQLite 持久化
+
+- Schema version 从 2 升级为 3。
+- 新增表：
+  - `risk_assessments`
+  - `structured_output_events`
+- 支持列出已有 LLM 分析且尚无评分的 CleanItem。
+- 支持按 CleanItem 获取 LLM 分析结果与关联 RawItem。
+- 支持评分与结构化事件幂等更新。
+- 已在本地真实 SQLite 数据库完成迁移验证。
+
+### CLI
+
+- 新增：
+  - `preview-risk-assessment`
+  - `run-risk-assessment`
+- 支持指定 CleanItem。
+- 支持 `--all` 与 `--limit`。
+- 执行模式支持 `--force` 覆盖已有评分。
+- 预览模式不写数据库。
+
+### 真实数据评分验证
+
+- CleanItem：`d87eb408-7518-53b6-9555-fa0d87ddd097`。
+- 评分配置版本：`84da68fd98d1`。
+- 最终分类：`sudden_event`。
+- 综合得分：`66.5319`。
+- 预警级别：`blue`。
+- 分项分数：
+  - keyword_category：60，加权 15.0。
+  - source：60，加权 6.0。
+  - heat：62.8794，加权 9.4319。
+  - llm_category：82，加权 12.3。
+  - sentiment：68，加权 10.2。
+  - llm_risk：68，加权 13.6。
+- 情感原始分为 0.68，评分层按历史 0-1 输出透明归一化为 68。
+- 结构化事件 ID：`929819bf-7fbc-59a2-aba8-1756e79a05e5`。
+- 当前真实库状态：`risk_assessments=1`、`structured_output_events=1`。
+
+### Phase 6 验证结果
+
+- 测试：`94 passed`
+- Ruff：`All checks passed!`
+- Mypy：`Success: no issues found in 56 source files`
+- 示例配置严格环境变量校验通过。
+- 实现提交：`c2fe1f9`
+
 ## 当前阻塞点
 
-1. 尚未执行完整 Phase 5 四任务真实分析入库。
-2. 尚未测试钉钉自动化 Webhook 的真实 Payload 契约。
-3. 尚未实现 PostgreSQL 存储。
-4. 尚未实现常驻调度器。
-5. 尚未实现 Phase 6 综合评分与预警级别。
-6. 情感分类体系仍是候选方案，等待业务确认。
+1. 尚未测试钉钉自动化 Webhook 的真实 Payload 契约。
+2. 尚未实现 PostgreSQL 存储。
+3. 尚未实现常驻调度器。
+4. 尚未对其余 5 条 CleanItem 执行完整 LLM 分析与评分。
+5. 情感分类体系仍是候选方案，等待业务确认。
 
 ## 紧接着的后续步骤
 
-1. 如需补齐 Phase 5 审计证据，对指定 CleanItem 执行完整四任务分析并入库。
-2. 进入 Phase 6：综合评分、预警级别分类与可解释审计记录。
+1. 推送 Phase 6 实现与交接更新。
+2. 进入 Phase 7：读取结构化事件，实现钉钉自动化输出、重试与投递台账。
 3. 用无敏感测试 Payload 验证钉钉自动化 Webhook。
 4. 实现常驻调度器。
 
@@ -699,8 +813,8 @@ Phase 3 验证结果：
 2. **Phase 2**：热搜采集器与解析 fixture。已完成，并完成真实接口探针与 bilibili / 百度解析修正。
 3. **Phase 3**：MediaCrawler 任务构建、执行、结果加载与平台映射。固定版本、单任务执行、关键词真实冒烟已完成；账号采集待解析问题解决。
 4. **Phase 4**：清洗、日期过滤、URL / 内容去重与状态仓储。已完成。
-5. **Phase 5**：OpenAI 兼容 Responses API 与严格结构化输出。基线与最小真实冒烟已完成，完整四任务真实分析可选补齐。
-6. **Phase 6**：评分、预警级别分类与可解释记录。
+5. **Phase 5**：OpenAI 兼容 Responses API 与严格结构化输出。基线、最小冒烟与一条完整四任务真实分析已完成。
+6. **Phase 6**：评分、预警级别分类与可解释记录。已完成一条真实数据端到端评分入库。
 7. **Phase 7**：钉钉自动化输出、重试与投递台账。
 8. **Phase 8**：端到端与定时试运行。
 
