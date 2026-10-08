@@ -28,6 +28,7 @@ class DingTalkAutomationPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: int = Field(default=1, ge=1)
+    source_system: Literal["opinion_monitor"] = "opinion_monitor"
     event_type: str = Field(default="opinion_monitor.alert", min_length=1)
     keyword: str = Field(min_length=1)
     event_id: UUID

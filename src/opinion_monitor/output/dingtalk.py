@@ -259,6 +259,7 @@ def _markdown_text(event: StructuredOutputEvent, keyword: str) -> str:
     lines = [
         f"### {keyword}｜{event.alert_level_label}",
         "",
+        "**来源系统：**`opinion_monitor`",
         f"**标题：**{_inline_text(event.title)}",
         f"- 综合得分：{event.overall_score:.2f}",
         f"- 预警属性：{event.category.value}",

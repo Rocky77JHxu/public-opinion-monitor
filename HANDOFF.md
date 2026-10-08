@@ -834,6 +834,7 @@ Phase 3 验证结果：
 
 - 支持 `automation_json`：
   - `schema_version=1`
+  - `source_system=opinion_monitor`
   - `event_type=opinion_monitor.alert`
   - `keyword=舆情预警`
   - `event_id`
@@ -920,9 +921,10 @@ Phase 3 验证结果：
 - 发送模式：
   - `automation_json`
 - Payload SHA-256：
-  - `8479057d280d3caf087b0066d5da160f9e9aa3e4d5b04fb39ff1d5e0d77596c2`
+  - `ad0fdba440ea00a373c8252801a8edf64293b06b90842b3db55ac1ba2a12c83d`
 - Payload 顶层字段完整：
   - `schema_version`
+  - `source_system`
   - `event_type`
   - `keyword`
   - `event_id`
@@ -931,9 +933,11 @@ Phase 3 验证结果：
   - `occurred_at`
   - `data`
 - dry-run 状态：成功。
+- 已加入固定来源标识：
+  - `source_system=opinion_monitor`
 - 当前真实库状态：
   - `dingtalk_deliveries=1`
-  - `dingtalk_delivery_attempts=1`
+  - `dingtalk_delivery_attempts=2`
 
 ### 真实 Webhook 冒烟尝试
 

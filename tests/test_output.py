@@ -66,6 +66,7 @@ def test_automation_payload_contains_trigger_keyword_and_redacts_sensitive_text(
     prepared = service.prepare(_event())
 
     assert prepared.payload["schema_version"] == 1
+    assert prepared.payload["source_system"] == "opinion_monitor"
     assert prepared.payload["event_type"] == "opinion_monitor.alert"
     assert prepared.payload["keyword"] == "舆情预警"
     assert prepared.payload["event_id"] == prepared.payload["data"]["event_id"]
@@ -88,6 +89,7 @@ def test_markdown_payload_uses_dingtalk_robot_schema() -> None:
 
     assert prepared.payload["msgtype"] == "markdown"
     assert prepared.payload["markdown"]["title"].startswith("舆情预警｜橙色")
+    assert "**来源系统：**`opinion_monitor`" in prepared.payload["markdown"]["text"]
     assert "[手机号]" in prepared.payload["markdown"]["text"]
     assert "[身份证号]" in prepared.payload["markdown"]["text"]
     assert "[查看来源](https://example.test/note/1)" in prepared.payload["markdown"]["text"]

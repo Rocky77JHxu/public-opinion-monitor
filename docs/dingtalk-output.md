@@ -111,6 +111,7 @@ output:
 ```json
 {
   "schema_version": 1,
+  "source_system": "opinion_monitor",
   "event_type": "opinion_monitor.alert",
   "keyword": "舆情预警",
   "event_id": "...",
@@ -143,6 +144,7 @@ output:
 用途：
 
 - `keyword` 满足钉钉触发关键词。
+- `source_system` 是固定来源标识，当前恒为 `opinion_monitor`，用于识别数据由本系统发出。
 - `event_id` 与 `dedup_key` 支持钉钉侧幂等。
 - `trace_id` 贯穿采集、清洗、分析、评分与产出。
 - `data` 保留完整业务事件，钉钉自动化流程可按字段引用。
@@ -163,6 +165,7 @@ output:
 
 Markdown 内容包含：
 
+- 来源系统标识。
 - 预警级别。
 - 标题。
 - 综合得分。
@@ -363,11 +366,13 @@ uv run opinion-monitor \
   - 预警级别：`blue`
   - 模式：`automation_json`
 - Payload SHA-256：
-  - `8479057d280d3caf087b0066d5da160f9e9aa3e4d5b04fb39ff1d5e0d77596c2`
+  - `ad0fdba440ea00a373c8252801a8edf64293b06b90842b3db55ac1ba2a12c83d`
 - dry-run 成功。
+- Payload 已包含固定来源标识：
+  - `source_system=opinion_monitor`
 - 台账：
   - `dingtalk_deliveries=1`
-  - `dingtalk_delivery_attempts=1`
+  - `dingtalk_delivery_attempts=2`
 
 ## 当前阻塞点
 

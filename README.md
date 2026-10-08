@@ -61,6 +61,7 @@
 - 风险研判与结构化输出事件持久化。
 - `preview-risk-assessment`、`run-risk-assessment` CLI。
 - 钉钉 `automation_json` 与 `markdown` Payload 构建。
+- 固定来源标识 `source_system=opinion_monitor`。
 - 手机号、身份证号与用户 ID 字段脱敏。
 - Webhook 公共地址校验、超时、重试与业务响应校验。
 - 钉钉投递状态与逐次尝试台账。
