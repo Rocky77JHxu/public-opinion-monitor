@@ -173,6 +173,15 @@ Phase 2 验证结果：
 - Ruff：`All checks passed!`
 - Mypy：`Success: no issues found in 22 source files`
 
+2026-10-08 只读真实接口探针：
+
+- bilibili：成功；确认真实结构为 `data.trending.list` 与 `heat_score`，解析器已修正。
+- 百度：成功；确认置顶卡片、排名节点与热搜指数节点，解析器已修正。
+- 抖音：HTTP 200 但响应体为空；不绕过平台限制。
+- 微博：HTTP 200 但无可解析条目；可能要求登录态或返回验证页。
+- 知乎：HTTP 403；不绕过平台限制。
+- 真实热搜内容未写入仓库，fixture 继续使用人工构造数据。
+
 以上结果为 Phase 1 中文基线后的完整验证结果。
 
 ## 当前阻塞点
@@ -185,7 +194,7 @@ Phase 2 验证结果：
 
 ## 紧接着的后续步骤
 
-1. 执行只读真实热搜接口探针，并保存脱敏 fixture。
+1. 为需要登录态的平台设计授权会话配置与失败告警，不绕过平台验证。
 3. 进入 Phase 3：MediaCrawler 任务构建、执行、结果加载与平台映射。
 4. 用无敏感测试 Payload 验证钉钉自动化 Webhook。
 5. 在合规审查通过后再固定引入 MediaCrawler。

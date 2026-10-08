@@ -137,6 +137,8 @@ class HotSearchHTTPClient:
                 last_error = exc
             else:
                 if 200 <= response.status_code < 300:
+                    if not response.text.strip():
+                        raise HotSearchHTTPError(f"{platform.value} 返回了空响应体")
                     return HotSearchDocument(
                         platform=platform,
                         request_url=str(response.request.url),

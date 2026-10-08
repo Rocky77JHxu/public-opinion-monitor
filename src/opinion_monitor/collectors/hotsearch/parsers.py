@@ -169,12 +169,15 @@ class BaiduHotSearchParser(BaseHotSearchParser):
                 continue
 
             link = (
-                card if card.name == "a" and card.has_attr("href") else card.select_one("a[href]")
+                card
+                if card.name == "a" and card.has_attr("href")
+                else card.select_one('a[class*="title"][href], a[href]')
             )
             href = link.get("href") if isinstance(link, Tag) else None
             url = urljoin(document.request_url, href) if isinstance(href, str) else None
 
-            rank_node = card.select_one('[class*="hot-index"]')
+            rank_node = card.select_one('[class^="index_"]')
+            heat_node = card.select_one('[class*="hot-index"]')
             data_index = card.get("data-index")
             rank = _parse_count(rank_node.get_text(strip=True) if rank_node else None)
             if rank is None and isinstance(data_index, str):
@@ -182,7 +185,7 @@ class BaiduHotSearchParser(BaseHotSearchParser):
             if rank is None or rank < 1:
                 rank = len(items) + 1
 
-            score_node = card.select_one(
+            score_node = heat_node or card.select_one(
                 '[class*="hot-score"], [class*="hot_value"], [class*="heat"]'
             )
             hot_value = _parse_count(_text(score_node))
@@ -332,7 +335,15 @@ class BilibiliHotSearchParser(BaseHotSearchParser):
         if not isinstance(data, dict):
             return []
         result = data.get("result")
-        return result if isinstance(result, list) else []
+        if isinstance(result, list):
+            return result
+        # 2026-10 真实接口探针确认当前结构为 data.trending.list。
+        trending = data.get("trending")
+        if isinstance(trending, dict):
+            entries = trending.get("list")
+            if isinstance(entries, list):
+                return entries
+        return []
 
     def _parse_document(self, document: HotSearchDocument) -> list[RawItem]:
         try:
@@ -354,7 +365,7 @@ class BilibiliHotSearchParser(BaseHotSearchParser):
                 continue
             position = entry.get("position")
             rank = int(position) if isinstance(position, int) and position >= 1 else len(items) + 1
-            score = entry.get("score")
+            score = entry.get("heat_score", entry.get("score"))
             uri = entry.get("uri")
             items.append(
                 _make_item(

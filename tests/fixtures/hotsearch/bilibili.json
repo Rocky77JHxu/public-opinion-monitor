@@ -1,11 +1,16 @@
 {
   "code": 0,
-  "message": "0",
+  "message": "OK",
+  "ttl": 1,
   "data": {
-    "result": [
-      {"position": 1, "keyword": "示例B站热搜一", "show_name": "示例B站热搜一", "score": 98765, "uri": "https://example.test/bilibili/1"},
-      {"position": 2, "keyword": "示例B站热搜二", "show_name": "示例B站热搜二", "score": 45678, "uri": "https://example.test/bilibili/2"},
-      {"position": 3, "keyword": "示例B站热搜三", "show_name": "示例B站热搜三", "score": 12345}
-    ]
+    "trending": {
+      "title": "bilibili热搜",
+      "trackid": "synthetic-fixture",
+      "list": [
+        {"keyword": "示例B站关键词一", "show_name": "示例B站热搜一", "heat_score": 98765, "icon": "", "uri": "https://example.test/bilibili/1", "goto": ""},
+        {"keyword": "示例B站关键词二", "show_name": "示例B站热搜二", "heat_score": 45678, "icon": "", "uri": "https://example.test/bilibili/2", "goto": ""},
+        {"keyword": "示例B站关键词三", "show_name": "示例B站热搜三", "heat_score": 12345, "icon": "", "uri": "", "goto": ""}
+      ]
+    }
   }
 }

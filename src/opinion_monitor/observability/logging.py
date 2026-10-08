@@ -28,6 +28,10 @@ def configure_logging(
         force=True,
     )
 
+    # HTTPX 在 INFO 级别输出每次请求日志，会破坏 CLI 的 JSON 输出。
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     shared_processors: list[Any] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
