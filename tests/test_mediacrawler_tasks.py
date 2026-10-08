@@ -154,6 +154,42 @@ async def test_execution_requires_pinned_ref() -> None:
     assert "pinned_ref" in (result.error or "")
 
 
+async def test_run_result_records_watchdog_metadata() -> None:
+    config = base_config()
+    config.keyword_search.levels["level_1"].platforms = [MediaCrawlerPlatform.XHS]
+    config.keyword_search.levels["level_1"].keywords = ["示例关键词"]
+    task = build_keyword_tasks(config)[0]
+
+    async def executor(task: object, plan: object) -> tuple[int | None, object, str | None]:
+        return -15, "succeeded", "条数 watchdog 停止任务：内容记录 6 超过上限 5"
+
+    result = await MediaCrawlerRunner(
+        config.mediacrawler,
+        command_executor=executor,  # type: ignore[arg-type]
+    ).run(task, execute=True)
+
+    assert result.status == "succeeded"
+    assert result.stopped_by_watchdog is True
+    assert result.watchdog_content_count == 6
+
+
+def test_count_content_records_ignores_comments_partial_lines_and_invalid_json(
+    tmp_path: Path,
+) -> None:
+    from opinion_monitor.collectors.mediacrawler.runner import _count_content_records
+
+    (tmp_path / "search_contents.jsonl").write_text(
+        '{"note_id":"1"}\n{"note_id":"2"}\n{"note_id":"partial"\ninvalid\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "search_comments.jsonl").write_text(
+        '{"comment_id":"1"}\n{"comment_id":"2"}\n',
+        encoding="utf-8",
+    )
+
+    assert _count_content_records(tmp_path) == 2
+
+
 async def test_integration_service_loads_discovered_jsonl_after_success(
     tmp_path: Path,
 ) -> None:

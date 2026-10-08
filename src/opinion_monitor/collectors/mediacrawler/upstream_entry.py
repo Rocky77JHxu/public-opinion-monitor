@@ -16,6 +16,7 @@ sys.path.insert(0, str(SOURCE_ROOT))
 
 from opinion_monitor.collectors.mediacrawler.xhs_compat import (  # noqa: E402
     patch_xhs_extractor,
+    patch_xhs_note_detail_limit,
 )
 
 _TRUE = {"1", "true", "yes", "y", "t"}
@@ -46,6 +47,10 @@ def main() -> None:
         "media_platform.xhs.extractor", fromlist=["XiaoHongShuExtractor"]
     )
     patch_xhs_extractor(xhs_extractor)
+    max_items = _env_int("OPINION_MONITOR_MAX_ITEMS", 0)
+    if max_items > 0:
+        xhs_core: Any = __import__("media_platform.xhs.core", fromlist=["XiaoHongShuCrawler"])
+        patch_xhs_note_detail_limit(xhs_core, max_items)
 
     config.ENABLE_CDP_MODE = _env_bool("OPINION_MONITOR_ENABLE_CDP_MODE", True)
     config.CDP_CONNECT_EXISTING = _env_bool("OPINION_MONITOR_CDP_CONNECT_EXISTING", True)

@@ -242,6 +242,8 @@ class MediaCrawlerConfig(StrictModel):
     command_name: str = "uv"
     entrypoint: str = "main.py"
     task_dir: str = "data/media_crawler/tasks"
+    watchdog_enabled: bool = True
+    watchdog_poll_seconds: PositiveFloat = 0.25
 
     @model_validator(mode="after")
     def check_execution_safety(self) -> MediaCrawlerConfig:

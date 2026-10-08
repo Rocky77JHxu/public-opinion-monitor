@@ -7,6 +7,7 @@ JavaScript 字面量，例如 ``undefined``、``new Set([])`` 与 ``new Map([])`
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -78,3 +79,37 @@ def patch_xhs_extractor(extractor_module: Any) -> None:
     extractor_class.extract_creator_info_from_html = lambda self, html: (
         _extract_creator_info_from_html(html)
     )
+
+
+def patch_xhs_note_detail_limit(core_module: Any, max_items: int) -> None:
+    """限制单次小红书任务实际请求的笔记详情数量。
+
+    上游搜索流程会把小于 20 的 ``CRAWLER_MAX_NOTES_COUNT`` 强制提升到 20，
+    并对整页搜索结果并发请求详情。该补丁在详情方法外层计数：达到主系统
+    配置的上限后，后续详情任务直接返回 ``None``，从而保留评论采集阶段。
+    """
+
+    crawler_class = core_module.XiaoHongShuCrawler
+    if getattr(crawler_class, "_opinion_monitor_detail_limit_patched", False):
+        return
+
+    original_method = crawler_class.get_note_detail_async_task
+
+    async def limited_detail_task(self: Any, *args: Any, **kwargs: Any) -> Any:
+        lock = getattr(self, "_opinion_monitor_detail_lock", None)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._opinion_monitor_detail_lock = lock
+
+        async with lock:
+            if getattr(self, "_opinion_monitor_detail_count", 0) >= max_items:
+                return None
+            result = await original_method(self, *args, **kwargs)
+            if result is not None:
+                self._opinion_monitor_detail_count = (
+                    getattr(self, "_opinion_monitor_detail_count", 0) + 1
+                )
+            return result
+
+    crawler_class.get_note_detail_async_task = limited_detail_task
+    crawler_class._opinion_monitor_detail_limit_patched = True

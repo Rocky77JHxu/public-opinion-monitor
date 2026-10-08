@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import re
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,6 +31,30 @@ CommandExecutor = Callable[
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _count_content_records(workspace: Path) -> int:
+    """统计完整落盘的内容 JSONL 记录，忽略评论文件与半写行。"""
+
+    count = 0
+    for path in workspace.rglob("*.jsonl"):
+        name = path.name.lower()
+        if "comment" in name or "content" not in name:
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                count += 1
+    return count
 
 
 class MediaCrawlerRunner:
@@ -95,6 +122,8 @@ class MediaCrawlerRunner:
             stdout_file=(Path(task.workspace_dir) / "stdout.log").as_posix(),
             stderr_file=(Path(task.workspace_dir) / "stderr.log").as_posix(),
             timeout_seconds=task.timeout_seconds,
+            watchdog_enabled=self._config.watchdog_enabled,
+            watchdog_poll_seconds=self._config.watchdog_poll_seconds,
         )
 
     async def _execute_subprocess(
@@ -148,6 +177,7 @@ class MediaCrawlerRunner:
                     "OPINION_MONITOR_CDP_HEADLESS": str(self._config.headless).lower(),
                     "OPINION_MONITOR_SAVE_LOGIN_STATE": str(self._config.save_login_state).lower(),
                     "OPINION_MONITOR_CRAWLER_MAX_SLEEP_SEC": str(self._config.max_sleep_seconds),
+                    "OPINION_MONITOR_MAX_ITEMS": str(task.max_items),
                 }
             )
             process = await asyncio.create_subprocess_exec(
@@ -157,9 +187,43 @@ class MediaCrawlerRunner:
                 stdout=stdout_file,
                 stderr=stderr_file,
             )
-            try:
-                await asyncio.wait_for(process.wait(), timeout=plan.timeout_seconds)
-            except TimeoutError:
+            process_wait = asyncio.create_task(process.wait())
+            deadline = time.monotonic() + plan.timeout_seconds
+            stopped_by_watchdog = False
+            watchdog_count: int | None = None
+            while not process_wait.done():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                await asyncio.wait(
+                    {process_wait},
+                    timeout=(
+                        plan.watchdog_poll_seconds if plan.watchdog_enabled else min(remaining, 1.0)
+                    ),
+                )
+                if process_wait.done() or not plan.watchdog_enabled:
+                    continue
+                content_count = _count_content_records(workspace)  # noqa: ASYNC240
+                if content_count > task.max_items:
+                    stopped_by_watchdog = True
+                    watchdog_count = content_count
+                    break
+
+            if stopped_by_watchdog:
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=10)
+                except TimeoutError:
+                    process.kill()
+                    await process.wait()
+                return (
+                    process.returncode,
+                    MediaCrawlerRunStatus.SUCCEEDED,
+                    f"条数 watchdog 停止任务：内容记录 {watchdog_count} 超过上限 {task.max_items}",
+                )
+
+            if not process_wait.done():
+                process_wait.cancel()
                 process.terminate()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=10)
@@ -171,6 +235,8 @@ class MediaCrawlerRunner:
                     MediaCrawlerRunStatus.TIMED_OUT,
                     f"任务超过 {plan.timeout_seconds} 秒",
                 )
+
+            await process_wait
 
         if process.returncode == 0:
             return process.returncode, MediaCrawlerRunStatus.SUCCEEDED, None
@@ -208,6 +274,8 @@ class MediaCrawlerRunner:
             error = "缺少 pinned_ref，拒绝执行 MediaCrawler"
         else:
             return_code, status, error = await self._command_executor(task, plan)
+        stopped_by_watchdog = bool(error and error.startswith("条数 watchdog 停止任务"))
+        match = re.search(r"内容记录 (\d+) 超过上限", error or "")
         return MediaCrawlerRunResult(
             task_id=task.task_id,
             status=status,
@@ -215,4 +283,6 @@ class MediaCrawlerRunner:
             completed_at=_now(),
             return_code=return_code,
             error=error,
+            stopped_by_watchdog=stopped_by_watchdog,
+            watchdog_content_count=int(match.group(1)) if match else None,
         )

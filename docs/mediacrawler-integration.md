@@ -339,6 +339,76 @@ src/opinion_monitor/collectors/mediacrawler/xhs_compat.py
 
 2026-10-08 已用同一账号链接复测成功，输出 5 条内容与 8 条评论。
 
+## 条数 watchdog
+
+上游小红书搜索流程会把小于 20 的 `crawler_max_notes_count` 强制提升到 20。为避免超出主系统配置，当前使用双层保护。
+
+### 1. 小红书详情请求限流
+
+`upstream_entry.py` 会根据环境变量 `OPINION_MONITOR_MAX_ITEMS` 在详情任务外层计数：
+
+```text
+达到 max_items
+  ↓
+后续详情任务直接返回 None
+  ↓
+不再请求第 max_items+1 条详情
+  ↓
+继续完成已采集条目的评论阶段
+```
+
+这样可以避免在内容达到 5 条时立刻杀进程导致评论缺失。
+
+### 2. 通用输出 watchdog
+
+Runner 会按配置轮询任务目录：
+
+```yaml
+mediacrawler:
+  watchdog_enabled: true
+  watchdog_poll_seconds: 0.25
+```
+
+统计规则：
+
+- 只统计文件名包含 `content` 且不包含 `comment` 的 JSONL。
+- 只统计能解析为 JSON 对象的完整行。
+- 半写行和非法 JSON 不计数。
+- 如果内容记录数超过 `max_items`，立即 terminate 上游子进程。
+
+如果 watchdog 触发，运行结果会保留：
+
+```text
+stopped_by_watchdog=true
+watchdog_content_count=<实际完整记录数>
+```
+
+### 2026-10-08 真实复测
+
+关键词：
+
+```text
+火灾
+```
+
+配置：
+
+```text
+max_items=5
+max_comments=100
+```
+
+结果：
+
+```text
+内容：5 条
+评论：150 条
+状态：succeeded
+stopped_by_watchdog=false
+```
+
+说明详情请求限流已在上游处理完 5 条前生效，无需通用 watchdog 强制终止进程。
+
 ## 任务 ID 策略
 
 任务 ID 使用确定性 UUIDv5，命名空间输入包含：

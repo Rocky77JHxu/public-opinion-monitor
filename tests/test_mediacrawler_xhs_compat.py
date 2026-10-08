@@ -7,6 +7,7 @@ from typing import Any
 from opinion_monitor.collectors.mediacrawler.xhs_compat import (
     extract_initial_state,
     patch_xhs_extractor,
+    patch_xhs_note_detail_limit,
 )
 
 
@@ -68,3 +69,17 @@ def test_patches_creator_and_note_extractors() -> None:
 
     assert creator == {"nickname": "tester"}
     assert note == {"note_id": "note-1"}
+
+
+async def test_note_detail_limit_skips_after_max_items() -> None:
+    class Crawler:
+        async def get_note_detail_async_task(self, note_id: str) -> str:
+            return f"detail-{note_id}"
+
+    module = SimpleNamespace(XiaoHongShuCrawler=Crawler)
+    patch_xhs_note_detail_limit(module, 2)
+
+    crawler: Any = Crawler()
+    results = [await crawler.get_note_detail_async_task(str(index)) for index in range(4)]
+
+    assert results == ["detail-0", "detail-1", None, None]

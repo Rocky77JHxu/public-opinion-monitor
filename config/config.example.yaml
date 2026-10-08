@@ -127,6 +127,8 @@ mediacrawler:
   command_name: uv
   entrypoint: main.py
   task_dir: data/media_crawler/tasks
+  watchdog_enabled: true
+  watchdog_poll_seconds: 0.25
 
 processing:
   date_filter:

@@ -43,6 +43,7 @@
 - MediaCrawler 关键词 / 账号任务构建器。
 - MediaCrawler 隔离命令计划与安全执行门槛。
 - MediaCrawler JSONL 结果发现、加载与字段归一化。
+- MediaCrawler 条数 watchdog 与小红书详情请求限流。
 - `plan-mediacrawler` 与 `load-mediacrawler` CLI 子命令。
 - 五个平台的合成 fixture 与回归测试。
 

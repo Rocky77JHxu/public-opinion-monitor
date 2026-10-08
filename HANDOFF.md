@@ -357,6 +357,45 @@ Phase 3 验证结果：
 - 上游返回 0 但无内容 JSONL 时标记失败。
 - 测试：`48 passed`。
 
+## 2026-10-08/09 条数 Watchdog 实现
+
+- 新增配置：
+  - `mediacrawler.watchdog_enabled`
+  - `mediacrawler.watchdog_poll_seconds`
+- `MediaCrawlerCommandPlan` 记录 watchdog 配置。
+- `MediaCrawlerRunResult` 记录：
+  - `stopped_by_watchdog`
+  - `watchdog_content_count`
+- Runner 每次任务向包装器传递 `OPINION_MONITOR_MAX_ITEMS`。
+- 新增小红书详情请求限流：
+  - 在 `get_note_detail_async_task` 外层计数。
+  - 达到 `max_items` 后后续详情任务返回 `None`。
+  - 不再请求第 `max_items+1` 条详情。
+  - 保留已采集条目的评论阶段。
+- 新增通用输出 watchdog：
+  - 轮询任务目录内容 JSONL。
+  - 忽略评论 JSONL。
+  - 忽略半写行与非法 JSON。
+  - 完整内容记录数超过 `max_items` 时终止子进程。
+  - 保留终止原因与实际计数。
+
+### Watchdog 真实复测
+
+- 平台：小红书。
+- 关键词：`火灾`。
+- 任务 ID：`20a7555f-7456-54b3-9cc7-7e23b4d6b9d2`。
+- 输出目录：`data/media_crawler/watchdog_smoke_tasks/...`
+- 配置：
+  - 内容上限 5。
+  - 单条评论上限 100。
+- 结果：
+  - 内容 5 条。
+  - 评论 150 条。
+  - 状态 `succeeded`。
+  - `stopped_by_watchdog=false`。
+- 结论：小红书详情请求限流已把内容限制在 5 条，且评论阶段未被截断。
+- 测试：`54 passed`。
+
 ## 当前阻塞点
 
 1. MediaCrawler 关键词与指定账号真实冒烟均已成功。
@@ -369,7 +408,7 @@ Phase 3 验证结果：
 
 1. 为 MediaCrawler 任务增加内容条数 watchdog，防止单页 20 条导致超出配置上限。
 2. 进入 Phase 4：任务状态、原始条目与评论证据持久化。
-3. 为 MediaCrawler 任务增加内容条数 watchdog，防止单页 20 条导致超出配置上限。
+3. 为任务状态与输出文件建立数据库索引。
 4. 实现日期过滤、URL 规范化、URL 去重与内容相似度去重。
 5. 用无敏感测试 Payload 验证钉钉自动化 Webhook。
 

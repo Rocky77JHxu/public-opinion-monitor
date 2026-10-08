@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from opinion_monitor.models import MediaCrawlerPlatform, RawItem
+
+PositiveFloat = Annotated[float, Field(gt=0)]
 
 
 class MediaCrawlerTask(BaseModel):
@@ -45,6 +47,8 @@ class MediaCrawlerCommandPlan(BaseModel):
     stdout_file: str
     stderr_file: str
     timeout_seconds: int = Field(ge=1)
+    watchdog_enabled: bool
+    watchdog_poll_seconds: PositiveFloat
 
 
 class MediaCrawlerRunStatus(StrEnum):
@@ -65,6 +69,8 @@ class MediaCrawlerRunResult(BaseModel):
     completed_at: datetime
     return_code: int | None = None
     error: str | None = None
+    stopped_by_watchdog: bool = False
+    watchdog_content_count: int | None = Field(default=None, ge=0)
 
 
 class MediaCrawlerLoadContext(BaseModel):

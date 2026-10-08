@@ -159,6 +159,19 @@ mediacrawler:
 
 Runner 会校验 `third_party/MediaCrawler` 的实际 `HEAD` 与 `pinned_ref` 是否一致。版本不匹配时拒绝执行。
 
+MediaCrawler 条数保护：
+
+```yaml
+mediacrawler:
+  watchdog_enabled: true
+  watchdog_poll_seconds: 0.25
+```
+
+- 小红书任务会在详情请求层按 `max_items` 计数，达到上限后跳过后续详情，并保留已采集条目的评论阶段。
+- 通用 watchdog 会轮询内容 JSONL；如果完整记录数超过 `max_items`，立即终止上游子进程。
+- 评论文件不参与内容条数统计。
+- 半写行和非法 JSON 不计入 watchdog 触发阈值。
+
 ## 日志
 
 配置项：
