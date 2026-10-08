@@ -34,6 +34,7 @@ from opinion_monitor.config import (
     redact_sensitive_values,
 )
 from opinion_monitor.config.schema import RootConfig
+from opinion_monitor.llm import LLMAnalysisService
 from opinion_monitor.models import HotSearchPlatform, MediaCrawlerPlatform
 from opinion_monitor.observability import configure_logging
 from opinion_monitor.storage import (
@@ -240,6 +241,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="清洗数据库中尚未处理的 RawItem",
     )
     process_pending.set_defaults(handler=run_process_pending)
+
+    preview_llm = subparsers.add_parser(
+        "preview-llm-analysis",
+        help="预览将发送给 LLM 的结构化 Prompt；不调用模型",
+    )
+    preview_llm.add_argument("--clean-item-id", default=None, help="CleanItem ID")
+    preview_llm.set_defaults(handler=run_preview_llm_analysis)
+
+    run_llm = subparsers.add_parser(
+        "run-llm-analysis",
+        help="对 CleanItem 执行 LLM 分析；默认仅预览",
+    )
+    run_llm.add_argument("--clean-item-id", default=None, help="CleanItem ID")
+    run_llm.add_argument(
+        "--all",
+        action="store_true",
+        help="处理全部尚无 LLM 结果的 CleanItem",
+    )
+    run_llm.add_argument("--limit", type=int, default=None, help="配合 --all 限制数量")
+    run_llm.add_argument(
+        "--execute",
+        action="store_true",
+        help="显式调用 OpenAI-compatible 模型；未传时只预览",
+    )
+    run_llm.set_defaults(handler=run_llm_analysis)
 
     return parser
 
@@ -464,6 +490,72 @@ def run_process_pending(args: argparse.Namespace) -> int:
     result = process_pending_items(config)
     print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
     return 0
+
+
+def _llm_items_to_process(
+    storage: SqliteStorage,
+    args: argparse.Namespace,
+) -> list[Any]:
+    if args.clean_item_id:
+        item = storage.get_clean_item(args.clean_item_id)
+        if item is None:
+            raise ConfigError(f"CleanItem 不存在：{args.clean_item_id}")
+        return [item]
+    items = storage.list_clean_items_missing_analysis()
+    if getattr(args, "all", False):
+        if getattr(args, "limit", None) is not None and args.limit >= 0:
+            items = items[: args.limit]
+        return items
+    return items[:1]
+
+
+def run_preview_llm_analysis(args: argparse.Namespace) -> int:
+    _environment, config = _environment_and_config(args)
+    storage = _sqlite_storage_from_config(config)
+    storage.initialise()
+    items = _llm_items_to_process(storage, args)
+    if not items:
+        print(json.dumps({"items": []}, ensure_ascii=False))
+        return 0
+    service = LLMAnalysisService(config.llm, env={})
+    previews = []
+    for item in items:
+        comments = storage.list_comments_for_clean_item(item.id)
+        previews.append(
+            {
+                "clean_item_id": str(item.id),
+                "comment_count": len(comments),
+                "prompts": [
+                    prompt.model_dump(mode="json") for prompt in service.preview(item, comments)
+                ],
+            }
+        )
+    print(json.dumps({"items": previews}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_llm_analysis(args: argparse.Namespace) -> int:
+    environment = dict(build_environment(args.env_file))
+    _environment, config = _environment_and_config(args)
+    storage = _sqlite_storage_from_config(config)
+    storage.initialise()
+    items = _llm_items_to_process(storage, args)
+    if not items:
+        print(json.dumps({"items": []}, ensure_ascii=False))
+        return 0
+    service = LLMAnalysisService(config.llm, env=environment)
+    output: list[dict[str, Any]] = []
+    failed = False
+    for item in items:
+        comments = storage.list_comments_for_clean_item(item.id)
+        run = asyncio.run(service.analyze(item, comments, execute=args.execute))
+        if args.execute:
+            storage.save_llm_analysis_run(run)
+            if run.audit is not None and run.audit.status != "succeeded":
+                failed = True
+        output.append(run.model_dump(mode="json"))
+    print(json.dumps({"items": output}, ensure_ascii=False, indent=2))
+    return 2 if failed else 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:

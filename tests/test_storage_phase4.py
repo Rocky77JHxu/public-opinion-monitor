@@ -85,6 +85,8 @@ def test_sqlite_storage_persists_raw_clean_and_decisions(tmp_path: Path) -> None
         "comment_records": 0,
         "processing_runs": 1,
         "processing_item_decisions": 1,
+        "llm_analysis_audits": 0,
+        "llm_analysis_results": 0,
     }
     assert storage.list_pending_raw_items() == []
     clean = storage.list_clean_items()
@@ -177,6 +179,8 @@ def test_ingest_and_process_media_crawler_task(tmp_path: Path) -> None:
         "comment_records": 1,
         "processing_runs": 1,
         "processing_item_decisions": 2,
+        "llm_analysis_audits": 0,
+        "llm_analysis_results": 0,
     }
     assert (
         process_pending_items(config, storage=SqliteStorage(config.storage.sqlite.path)).input_count

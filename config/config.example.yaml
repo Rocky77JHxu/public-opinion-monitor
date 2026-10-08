@@ -273,6 +273,7 @@ llm:
   max_retries: 2
   enable_structured_output: true
   prompt_dir: config/prompts
+  max_input_comments: 100
 
 output:
   dingtalk:

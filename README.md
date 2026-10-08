@@ -1,6 +1,6 @@
 # 舆情监测系统
 
-本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 4：持久化与清洗基线** 阶段。MediaCrawler 已固定接入，SQLite 原始层 / 评论证据 / 清洗层已实现，日期过滤、URL 去重、SimHash 与文本相似度去重已可用；未启动常驻爬取任务。
+本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 5：LLM 分析基线** 阶段。MediaCrawler 已固定接入，SQLite 原始层 / 评论证据 / 清洗层已实现，LLM 客户端、版本化 Prompt、结构化输出校验、地域提取、情感分析与风险建议基线已可用；未启动常驻爬取任务。
 
 ## 系统定位
 
@@ -21,6 +21,7 @@
 - [MediaCrawler 集成设计](docs/mediacrawler-integration.md)
 - [配置与 CLI 使用说明](docs/configuration.md)
 - [持久化与清洗设计](docs/persistence-processing.md)
+- [LLM 分析设计](docs/llm-analysis.md)
 - [热搜采集设计](docs/hotsearch.md)
 
 ## 当前状态
@@ -48,6 +49,10 @@
 - SQLite 原始层、评论证据与清洗层持久化。
 - 日期过滤、URL 规范化、URL 去重与 SimHash 文本去重。
 - `init-db`、`ingest-mediacrawler-task`、`process-pending` CLI。
+- OpenAI-compatible LLM 客户端与结构化 JSON 解析。
+- 预警分类、地域实体、评论情感与风险建议 Prompt。
+- LLM 调用审计与结果入库。
+- `preview-llm-analysis`、`run-llm-analysis` CLI。
 - `plan-mediacrawler` 与 `load-mediacrawler` CLI 子命令。
 - 五个平台的合成 fixture 与回归测试。
 
@@ -56,6 +61,7 @@
 - 常驻调度器。
 - 原始数据持久化。
 - MediaCrawler 常驻调度与 PostgreSQL 存储。
+- LLM 批量并发调用、结果缓存与质量评测集。
 - 清洗与去重。
 - LLM 分析模块。
 - 评分流水线。
@@ -79,6 +85,7 @@ uv run opinion-monitor inspect-env
 uv run opinion-monitor show-config --format json
 uv run opinion-monitor collect-hotsearch --platform weibo
 uv run opinion-monitor plan-mediacrawler --source keyword
+uv run opinion-monitor preview-llm-analysis
 uv run opinion-monitor init-db
 uv run opinion-monitor ingest-mediacrawler-task --help
 uv run opinion-monitor run-mediacrawler --help

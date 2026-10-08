@@ -22,12 +22,13 @@ from opinion_monitor.models import (
     CleanItem,
     CommentRecord,
     DiscardedItem,
+    LLMAnalysisRun,
     ProcessingResult,
     RawItem,
 )
 from opinion_monitor.models.enums import HotSearchPlatform, MediaCrawlerPlatform
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_crawler_tasks (
@@ -161,6 +162,29 @@ CREATE TABLE IF NOT EXISTS processing_item_decisions (
 );
 CREATE INDEX IF NOT EXISTS idx_decisions_run
     ON processing_item_decisions(processing_run_id);
+
+CREATE TABLE IF NOT EXISTS llm_analysis_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    clean_item_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    model TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    attempts INTEGER NOT NULL,
+    error TEXT,
+    request_digest TEXT NOT NULL,
+    usage_json TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_audits_item
+    ON llm_analysis_audits(clean_item_id, created_at);
+
+CREATE TABLE IF NOT EXISTS llm_analysis_results (
+    clean_item_id TEXT PRIMARY KEY REFERENCES clean_items(id) ON DELETE CASCADE,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -548,6 +572,8 @@ class SqliteStorage:
                 "comment_records",
                 "processing_runs",
                 "processing_item_decisions",
+                "llm_analysis_audits",
+                "llm_analysis_results",
             )
             return {
                 table: int(
@@ -557,3 +583,130 @@ class SqliteStorage:
                 )
                 for table in tables
             }
+
+    def get_clean_item(self, clean_item_id: UUID | str) -> CleanItem | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM clean_items WHERE id = ?",
+                (str(clean_item_id),),
+            ).fetchone()
+            if row is None:
+                return None
+            source_rows = connection.execute(
+                """
+                SELECT raw_item_id FROM clean_item_sources
+                WHERE clean_item_id = ? ORDER BY rowid
+                """,
+                (row["id"],),
+            ).fetchall()
+            return self._row_to_clean(
+                row,
+                [UUID(source_row["raw_item_id"]) for source_row in source_rows],
+            )
+
+    def list_clean_items_missing_analysis(self) -> list[CleanItem]:
+        query = """
+            SELECT c.* FROM clean_items c
+            LEFT JOIN llm_analysis_results r ON r.clean_item_id = c.id
+            WHERE r.clean_item_id IS NULL
+            ORDER BY c.collected_at, c.id
+        """
+        with self._connect() as connection:
+            rows = connection.execute(query).fetchall()
+            result: list[CleanItem] = []
+            for row in rows:
+                source_rows = connection.execute(
+                    """
+                    SELECT raw_item_id FROM clean_item_sources
+                    WHERE clean_item_id = ? ORDER BY rowid
+                    """,
+                    (row["id"],),
+                ).fetchall()
+                result.append(
+                    self._row_to_clean(
+                        row,
+                        [UUID(source_row["raw_item_id"]) for source_row in source_rows],
+                    )
+                )
+        return result
+
+    def list_comments_for_clean_item(self, clean_item_id: UUID | str) -> list[CommentRecord]:
+        query = """
+            SELECT DISTINCT cm.*
+            FROM comment_records cm
+            JOIN clean_item_sources s ON s.clean_item_id = ?
+            JOIN raw_items r ON r.id = s.raw_item_id
+            WHERE cm.note_external_id = r.external_id
+            ORDER BY cm.published_at, cm.id
+        """
+        with self._connect() as connection:
+            rows = connection.execute(query, (str(clean_item_id),)).fetchall()
+
+        comments: list[CommentRecord] = []
+        for row in rows:
+            comments.append(
+                CommentRecord.model_validate(
+                    {
+                        "id": UUID(row["id"]),
+                        "task_id": UUID(row["task_id"]),
+                        "platform": row["platform"],
+                        "note_external_id": row["note_external_id"],
+                        "external_comment_id": row["external_comment_id"],
+                        "parent_comment_id": row["parent_comment_id"],
+                        "content": row["content"],
+                        "author_id": row["author_id"],
+                        "author_name": row["author_name"],
+                        "published_at": datetime.fromisoformat(row["published_at"])
+                        if row["published_at"]
+                        else None,
+                        "collected_at": datetime.fromisoformat(row["collected_at"]),
+                        "like_count": row["like_count"],
+                        "raw_payload": _load_json(row["raw_payload"]),
+                        "collector_version": row["collector_version"],
+                    }
+                )
+            )
+        return comments
+
+    def save_llm_analysis_run(self, run: LLMAnalysisRun) -> None:
+        now = datetime.now().isoformat()
+        with self._connect() as connection:
+            if run.audit is not None:
+                connection.execute(
+                    """
+                    INSERT INTO llm_analysis_audits (
+                        clean_item_id, status, model, started_at, completed_at,
+                        duration_ms, attempts, error, request_digest, usage_json,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(run.clean_item_id),
+                        run.audit.status,
+                        run.audit.model,
+                        run.audit.started_at.isoformat(),
+                        run.audit.completed_at.isoformat(),
+                        run.audit.duration_ms,
+                        run.audit.attempts,
+                        run.audit.error,
+                        run.audit.request_digest,
+                        run.audit.usage.model_dump_json() if run.audit.usage else None,
+                        now,
+                    ),
+                )
+            if run.result is not None:
+                connection.execute(
+                    """
+                    INSERT INTO llm_analysis_results (
+                        clean_item_id, result_json, created_at
+                    ) VALUES (?, ?, ?)
+                    ON CONFLICT(clean_item_id) DO UPDATE SET
+                        result_json = excluded.result_json,
+                        created_at = excluded.created_at
+                    """,
+                    (
+                        str(run.result.clean_item_id),
+                        run.result.model_dump_json(),
+                        now,
+                    ),
+                )

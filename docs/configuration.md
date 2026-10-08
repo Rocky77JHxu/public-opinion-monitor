@@ -147,6 +147,26 @@ uv run opinion-monitor show-config --format yaml
 
 以 `_env` 结尾的字段只包含变量名，不包含秘密值，因此会正常显示。
 
+## LLM 分析配置
+
+LLM 密钥只通过环境变量读取：
+
+```yaml
+llm:
+  base_url_env: OPENAI_BASE_URL
+  api_key_env: OPENAI_API_KEY
+  model_env: OPENAI_MODEL
+  max_input_comments: 100
+```
+
+默认建议先使用：
+
+```bash
+uv run opinion-monitor preview-llm-analysis
+```
+
+该命令只构建 Prompt，不调用模型。只有在 `run-llm-analysis` 上显式追加 `--execute` 才会请求 OpenAI-compatible 接口。
+
 ## MediaCrawler 安全开关
 
 MediaCrawler 使用许可已确认。示例配置允许显式执行，但仍要求 CLI 传入 `--execute`：

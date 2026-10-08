@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 4 已完成 SQLite 持久化、RawItem / 评论证据入库、日期过滤、URL 规范化与去重、SimHash 文本指纹与相似度去重，并用真实关键词与指定账号数据验证。
+建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 5 已完成 OpenAI-compatible LLM 客户端、版本化 Prompt、结构化输出校验、分类、地域实体、评论情感与风险建议分析，以及调用审计和结果入库；真实数据 Prompt 预览已通过，尚未调用真实模型。
 
 ## 更新时间
 
@@ -20,6 +20,7 @@
 - Phase 3 主系统侧基线已提交为 `efb8828`。
 - MediaCrawler 固定版本接入与条数保护已提交推送，最新已推送提交为 `8b8fa52`。
 - Phase 4 已验证、提交并推送，提交为 `38577ee`。
+- Phase 5 变更已完成并待提交推送。
 
 ## 已完成工作
 
@@ -518,13 +519,118 @@ Phase 3 验证结果：
 - Mypy：`Success: no issues found in 45 source files`
 - 新增文档：`docs/persistence-processing.md`
 
+## Phase 5 实现
+
+### LLM 领域模型
+
+- 新增：
+  - `GeoEvidence`
+  - `SentimentEvidence`
+  - `LLMUsage`
+  - `LLMAnalysisResult`
+  - `LLMPromptRequest`
+  - `LLMAuditRecord`
+  - `LLMAnalysisRun`
+- 所有模型输出均通过 Pydantic 严格校验。
+- 风险分数范围 0-100。
+- 置信度与比例范围 0-1。
+- 调用审计保留状态、耗时、尝试次数、错误与 Token 用量。
+
+### Prompt 管理
+
+- 新增 `config/prompts/`：
+  - `classification.md`
+  - `geo_extraction.md`
+  - `sentiment_analysis.md`
+  - `risk_assessment.md`
+- Prompt 版本为文件内容 SHA-256 前 12 位。
+- Prompt 输入使用结构化 JSON。
+- Prompt 文件包含明确 JSON 输出约束。
+- Prompt 不接收作者完整身份，只接收必要分析字段。
+
+### OpenAI-compatible 客户端
+
+- 使用 `httpx` 直接调用 Chat Completions。
+- 不依赖厂商 SDK。
+- 支持环境变量读取：
+  - base URL
+  - API Key
+  - model
+- 支持超时与最大重试。
+- 408 / 425 / 429 / 5xx / 传输错误可重试。
+- 支持 `response_format=json_object`。
+- 支持剥离 Markdown JSON 代码块。
+- 不记录 API Key。
+- 可注入 `httpx.MockTransport` 进行测试。
+
+### LLM 分析服务
+
+- 输入：
+  - CleanItem。
+  - 关联评论证据。
+- 输出任务：
+  - 预警资讯属性分类。
+  - 地域实体提取。
+  - 评论情感聚合。
+  - 风险分数与建议。
+- 评论输入最多 `llm.max_input_comments` 条，默认 100。
+- 评论作者身份不进入 Prompt。
+- 无评论时不调用情感模型，生成 unknown 证据并保留不确定性。
+- 模型输出缺少字段或校验失败时记录失败审计。
+- LLM 分类与规则分类冲突时，LLM 结果独立保留，后续 Phase 6 评分时以 LLM 为准。
+
+### SQLite 持久化
+
+- Schema version 升级为 2。
+- 新增表：
+  - `llm_analysis_audits`
+  - `llm_analysis_results`
+- 审计保留每次调用历史。
+- 结果按 CleanItem 幂等更新。
+- 支持列出尚无 LLM 结果的 CleanItem。
+- 支持按 CleanItem 聚合评论证据。
+
+### CLI
+
+- 新增：
+  - `preview-llm-analysis`
+  - `run-llm-analysis`
+- `preview-llm-analysis` 只构建 Prompt，不调用模型。
+- `run-llm-analysis` 默认仍只预览。
+- 只有显式传入 `--execute` 才调用模型。
+- 支持指定 CleanItem。
+- 支持处理全部待分析条目。
+- 支持 `--limit` 控制批量数量。
+- 调用失败时 CLI 返回非零。
+
+### 真实数据预览
+
+- 使用本地真实 SQLite 数据：
+  - CleanItem：`d87eb408-7518-53b6-9555-fa0d87ddd097`
+  - 关联评论：72 条。
+- 生成 Prompt：
+  - classification：`4e6b46fe6969`
+  - geo_extraction：`27b881c82c4e`
+  - risk_assessment：`d2b7d4a50d32`
+  - sentiment_analysis：`7e0075bbd558`
+- 该预览未调用外部模型，未消耗 Token。
+- 当前 `llm_analysis_audits=0`、`llm_analysis_results=0`。
+
+### Phase 5 验证结果
+
+- 测试：`75 passed`
+- Ruff：`All checks passed!`
+- Mypy：`Success: no issues found in 51 source files`
+- 新增文档：`docs/llm-analysis.md`
+
 ## 当前阻塞点
 
-1. 尚未测试钉钉自动化 Webhook 的真实 Payload 契约。
-2. 尚未实现 PostgreSQL 存储。
-3. 尚未实现常驻调度器。
-4. 尚未实现 LLM 分析与评分。
-5. 情感分类体系仍是候选方案，等待业务确认。
+1. 尚未使用真实 OpenAI-compatible 服务执行 Phase 5 调用。
+2. 尚未测试钉钉自动化 Webhook 的真实 Payload 契约。
+3. 尚未实现 PostgreSQL 存储。
+4. 尚未实现常驻调度器。
+5. 尚未实现 Phase 6 综合评分与预警级别。
+6. 情感分类体系仍是候选方案，等待业务确认。
 
 ## 紧接着的后续步骤
 
@@ -539,7 +645,7 @@ Phase 3 验证结果：
 2. **Phase 2**：热搜采集器与解析 fixture。已完成，并完成真实接口探针与 bilibili / 百度解析修正。
 3. **Phase 3**：MediaCrawler 任务构建、执行、结果加载与平台映射。固定版本、单任务执行、关键词真实冒烟已完成；账号采集待解析问题解决。
 4. **Phase 4**：清洗、日期过滤、URL / 内容去重与状态仓储。已完成。
-5. **Phase 5**：OpenAI 兼容客户端与受控 JSON 分析。
+5. **Phase 5**：OpenAI 兼容客户端与受控 JSON 分析。基线已完成，真实模型调用待执行。
 6. **Phase 6**：评分、预警级别分类与可解释记录。
 7. **Phase 7**：钉钉自动化输出、重试与投递台账。
 8. **Phase 8**：端到端与定时试运行。

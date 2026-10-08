@@ -441,6 +441,7 @@ class LLMConfig(StrictModel):
     max_retries: NonNegativeInt
     enable_structured_output: bool
     prompt_dir: str = Field(min_length=1)
+    max_input_comments: PositiveInt = 100
 
 
 class DingTalkLevelConfig(StrictModel):

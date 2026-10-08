@@ -1,5 +1,14 @@
 """领域数据模型。"""
 
+from opinion_monitor.models.analysis import (
+    GeoEvidence,
+    LLMAnalysisResult,
+    LLMAnalysisRun,
+    LLMAuditRecord,
+    LLMPromptRequest,
+    LLMUsage,
+    SentimentEvidence,
+)
 from opinion_monitor.models.clean import CleanItem, CommentRecord, DiscardedItem
 from opinion_monitor.models.enums import (
     AlertCategory,
@@ -15,10 +24,17 @@ __all__ = [
     "CleanItem",
     "CommentRecord",
     "DiscardedItem",
+    "GeoEvidence",
     "HotSearchPlatform",
+    "LLMAuditRecord",
+    "LLMAnalysisResult",
+    "LLMAnalysisRun",
+    "LLMPromptRequest",
+    "LLMUsage",
     "MediaCrawlerPlatform",
     "ProcessingResult",
     "RawItem",
+    "SentimentEvidence",
     "SourceType",
     "utc_now",
 ]
