@@ -446,6 +446,7 @@ class DingTalkLevelConfig(StrictModel):
 class DingTalkOutputConfig(StrictModel):
     enabled: bool
     webhook_url_env: EnvVarName
+    trigger_keyword: str = Field(default="舆情预警", min_length=1)
     timeout_seconds: PositiveFloat
     max_retries: NonNegativeInt
     retry_backoff_seconds: NonNegativeInt

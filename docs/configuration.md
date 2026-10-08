@@ -61,6 +61,7 @@ llm:
 output:
   dingtalk:
     webhook_url_env: DINGTALK_AUTOMATION_WEBHOOK_URL
+    trigger_keyword: 舆情预警
 ```
 
 这种方式避免把秘密值混入 YAML。默认情况下，这些变量缺失不会阻止 Schema 校验，便于开发环境启动；生产或发布前检查应使用 `--strict-env`。
@@ -169,6 +170,30 @@ uv run opinion-monitor preview-llm-analysis
 该命令只构建 Prompt 与响应 Schema，不调用模型。只有在 `run-llm-analysis` 上显式追加 `--execute` 才会请求 OpenAI-compatible Responses API。
 
 `enable_structured_output: true` 是推荐值，会发送 `text.format.type=json_schema` 与 `strict=true`。`false` 只用于兼容不支持 Structured Outputs 的服务，退回 `json_object`。
+
+## 钉钉产出配置
+
+`trigger_keyword` 必须与钉钉自动化 Webhook 的触发关键词一致。默认 Payload 会携带该关键词。
+
+预览：
+
+```bash
+uv run opinion-monitor --config config/config.local.yaml preview-dingtalk-output
+```
+
+dry-run：
+
+```bash
+uv run opinion-monitor --config config/config.local.yaml send-dingtalk-output
+```
+
+真实发送必须显式传入：
+
+```text
+--execute
+```
+
+详细设计见 [钉钉自动化产出设计](dingtalk-output.md)。
 
 ## 综合评分配置
 

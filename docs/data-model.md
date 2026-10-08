@@ -154,6 +154,29 @@
 - 关键证据片段。
 - 建议动作。
 
+## DingTalk 产出与投递记录
+
+钉钉产出层保存：
+
+- 脱敏后的 automation JSON 或 Markdown Payload。
+- Payload SHA-256 指纹。
+- 发送模式。
+- 预警级别。
+- 是否即时。
+- 是否 dry-run。
+- HTTP 状态码。
+- 响应体。
+- 错误原因。
+- 尝试次数。
+- 每次请求 / dry-run 的开始与结束时间。
+
+SQLite 表：
+
+```text
+dingtalk_deliveries
+dingtalk_delivery_attempts
+```
+
 ## 指纹策略
 
 - URL 指纹基于规范化 URL。

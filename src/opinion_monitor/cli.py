@@ -37,6 +37,7 @@ from opinion_monitor.config.schema import RootConfig
 from opinion_monitor.llm import LLMAnalysisService
 from opinion_monitor.models import HotSearchPlatform, MediaCrawlerPlatform
 from opinion_monitor.observability import configure_logging
+from opinion_monitor.output import DingTalkOutputService
 from opinion_monitor.scoring import RiskScoringService
 from opinion_monitor.storage import (
     SqliteStorage,
@@ -298,6 +299,52 @@ def build_parser() -> argparse.ArgumentParser:
         help="指定 CleanItem 或 --all 时允许覆盖已有评分",
     )
     run_scoring.set_defaults(handler=run_risk_assessment)
+
+    preview_output = subparsers.add_parser(
+        "preview-dingtalk-output",
+        help="预览钉钉自动化 Payload；不发送请求，不写投递台账",
+    )
+    preview_output.add_argument("--event-id", default=None, help="结构化事件 ID")
+    preview_output.add_argument(
+        "--all",
+        action="store_true",
+        help="预览全部待投递事件",
+    )
+    preview_output.add_argument(
+        "--include-queued",
+        action="store_true",
+        help="包含 immediate=false 的非即时事件",
+    )
+    preview_output.add_argument("--limit", type=int, default=None, help="最多输出事件数")
+    preview_output.set_defaults(handler=run_preview_dingtalk_output)
+
+    send_output = subparsers.add_parser(
+        "send-dingtalk-output",
+        help="投递结构化事件到钉钉自动化；默认 dry-run",
+    )
+    send_output.add_argument("--event-id", default=None, help="结构化事件 ID")
+    send_output.add_argument(
+        "--all",
+        action="store_true",
+        help="处理全部待投递事件",
+    )
+    send_output.add_argument(
+        "--include-queued",
+        action="store_true",
+        help="包含 immediate=false 的非即时事件",
+    )
+    send_output.add_argument("--limit", type=int, default=None, help="最多处理事件数")
+    send_output.add_argument(
+        "--force",
+        action="store_true",
+        help="指定事件已成功投递时仍允许重发",
+    )
+    send_output.add_argument(
+        "--execute",
+        action="store_true",
+        help="显式发送真实 Webhook 请求；未传时只 dry-run",
+    )
+    send_output.set_defaults(handler=run_send_dingtalk_output)
 
     return parser
 
@@ -670,6 +717,99 @@ def run_preview_risk_assessment(args: argparse.Namespace) -> int:
 
 def run_risk_assessment(args: argparse.Namespace) -> int:
     return _run_scoring(args, persist=True)
+
+
+def _output_events_to_process(
+    storage: SqliteStorage,
+    config: RootConfig,
+    args: argparse.Namespace,
+    *,
+    force: bool = False,
+) -> list[Any]:
+    if args.event_id:
+        event = storage.get_structured_output_event(args.event_id)
+        if event is None:
+            raise ConfigError(f"结构化事件不存在：{args.event_id}")
+        if not force:
+            delivered = storage.get_dingtalk_delivery(event.event_id)
+            if delivered is not None and delivered.status == "succeeded":
+                return []
+        return [event]
+
+    enabled_levels = {
+        level.value
+        for level, level_config in config.output.dingtalk.levels.items()
+        if level_config.enabled
+    }
+    events = storage.list_structured_output_events(alert_levels=enabled_levels)
+    if not getattr(args, "include_queued", False):
+        events = [
+            event for event in events if config.output.dingtalk.levels[event.alert_level].immediate
+        ]
+    if not getattr(args, "all", False):
+        events = events[:1]
+    if getattr(args, "limit", None) is not None and args.limit >= 0:
+        events = events[: args.limit]
+    return events
+
+
+def run_preview_dingtalk_output(args: argparse.Namespace) -> int:
+    _environment, config = _environment_and_config(args)
+    storage = _sqlite_storage_from_config(config)
+    storage.initialise()
+    events = _output_events_to_process(storage, config, args, force=True)
+    service = DingTalkOutputService(config, env={})
+    output = []
+    for event in events:
+        prepared = service.prepare(event)
+        output.append(
+            {
+                "status": "preview",
+                "event_id": str(event.event_id),
+                "clean_item_id": str(event.clean_item_id),
+                "alert_level": event.alert_level.value,
+                "send_mode": config.output.dingtalk.send_mode,
+                "payload_hash": prepared.payload_hash,
+                "payload": prepared.payload,
+            }
+        )
+    print(json.dumps({"events": output}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_send_dingtalk_output(args: argparse.Namespace) -> int:
+    environment = dict(build_environment(args.env_file))
+    _environment, config = _environment_and_config(args)
+    storage = _sqlite_storage_from_config(config)
+    storage.initialise()
+    events = _output_events_to_process(
+        storage,
+        config,
+        args,
+        force=args.force,
+    )
+    if not events:
+        print(json.dumps({"events": []}, ensure_ascii=False))
+        return 0
+
+    service = DingTalkOutputService(config, env=environment)
+    output: list[dict[str, Any]] = []
+    failed = False
+    for event in events:
+        previous = storage.get_dingtalk_delivery(event.event_id)
+        result = asyncio.run(
+            service.deliver(
+                event,
+                dry_run=not args.execute,
+                attempt_offset=previous.attempt_count if previous is not None else 0,
+            )
+        )
+        storage.save_dingtalk_delivery_result(result)
+        if result.status == "failed":
+            failed = True
+        output.append(result.model_dump(mode="json"))
+    print(json.dumps({"events": output}, ensure_ascii=False, indent=2))
+    return 2 if failed else 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:

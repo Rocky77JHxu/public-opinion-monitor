@@ -1,6 +1,6 @@
 # 舆情监测系统
 
-本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 6：综合评分与预警级别** 阶段。MediaCrawler 已固定接入，SQLite 原始层 / 评论证据 / 清洗层 / LLM 分析层已实现，Responses API 严格结构化输出、地域提取、情感分析、风险建议、综合评分、预警级别与结构化事件基线已可用；未启动常驻爬取任务。
+本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 7：钉钉自动化产出** 阶段。MediaCrawler 已固定接入，SQLite 原始层 / 评论证据 / 清洗层 / LLM 分析层 / 评分层已实现，Responses API 严格结构化输出、综合评分、预警级别、结构化事件、钉钉 Payload 构建、dry-run、重试与投递台账基线已可用；未启动常驻爬取任务。
 
 ## 系统定位
 
@@ -22,6 +22,7 @@
 - [配置与 CLI 使用说明](docs/configuration.md)
 - [持久化与清洗设计](docs/persistence-processing.md)
 - [LLM 分析设计](docs/llm-analysis.md)
+- [钉钉自动化产出设计](docs/dingtalk-output.md)
 - [热搜采集设计](docs/hotsearch.md)
 
 ## 当前状态
@@ -59,6 +60,11 @@
 - 评分配置版本指纹与分项证据解释。
 - 风险研判与结构化输出事件持久化。
 - `preview-risk-assessment`、`run-risk-assessment` CLI。
+- 钉钉 `automation_json` 与 `markdown` Payload 构建。
+- 手机号、身份证号与用户 ID 字段脱敏。
+- Webhook 公共地址校验、超时、重试与业务响应校验。
+- 钉钉投递状态与逐次尝试台账。
+- `preview-dingtalk-output`、`send-dingtalk-output` CLI。
 - `plan-mediacrawler` 与 `load-mediacrawler` CLI 子命令。
 - 五个平台的合成 fixture 与回归测试。
 
@@ -67,7 +73,8 @@
 - 常驻调度器。
 - MediaCrawler 常驻调度与 PostgreSQL 存储。
 - LLM 批量并发调用、结果缓存与质量评测集。
-- 钉钉 Webhook 客户端。
+- 真实钉钉 Webhook URL 契约冒烟：当前 `.env` 中仍是 `replace-me` 占位符。
+- 常驻调度器自动触发钉钉产出。
 
 ## 开发环境
 
@@ -89,6 +96,7 @@ uv run opinion-monitor collect-hotsearch --platform weibo
 uv run opinion-monitor plan-mediacrawler --source keyword
 uv run opinion-monitor preview-llm-analysis
 uv run opinion-monitor preview-risk-assessment
+uv run opinion-monitor preview-dingtalk-output --include-queued
 uv run opinion-monitor init-db
 uv run opinion-monitor ingest-mediacrawler-task --help
 uv run opinion-monitor run-mediacrawler --help

@@ -21,16 +21,20 @@ from opinion_monitor.collectors.mediacrawler.models import (
 from opinion_monitor.models import (
     CleanItem,
     CommentRecord,
+    DingTalkDeliveryAttempt,
+    DingTalkDeliveryRecord,
+    DingTalkDeliveryResult,
     DiscardedItem,
     LLMAnalysisResult,
     LLMAnalysisRun,
     ProcessingResult,
     RawItem,
     ScoringRunResult,
+    StructuredOutputEvent,
 )
 from opinion_monitor.models.enums import HotSearchPlatform, MediaCrawlerPlatform
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_crawler_tasks (
@@ -201,6 +205,40 @@ CREATE TABLE IF NOT EXISTS structured_output_events (
     event_json TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dingtalk_deliveries (
+    event_id TEXT PRIMARY KEY REFERENCES structured_output_events(event_id) ON DELETE CASCADE,
+    clean_item_id TEXT NOT NULL,
+    alert_level TEXT NOT NULL,
+    send_mode TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempt_count INTEGER NOT NULL,
+    immediate INTEGER NOT NULL,
+    dry_run INTEGER NOT NULL,
+    payload_hash TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    response_status_code INTEGER,
+    response_body TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dingtalk_delivery_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL REFERENCES dingtalk_deliveries(event_id) ON DELETE CASCADE,
+    attempt_number INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    dry_run INTEGER NOT NULL,
+    payload_hash TEXT NOT NULL,
+    response_status_code INTEGER,
+    response_body TEXT,
+    error TEXT,
+    started_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(event_id, attempt_number)
 );
 """
 
@@ -593,6 +631,8 @@ class SqliteStorage:
                 "llm_analysis_results",
                 "risk_assessments",
                 "structured_output_events",
+                "dingtalk_deliveries",
+                "dingtalk_delivery_attempts",
             )
             return {
                 table: int(
@@ -815,3 +855,198 @@ class SqliteStorage:
                     now,
                 ),
             )
+
+    def get_structured_output_event(
+        self,
+        event_id: UUID | str,
+    ) -> StructuredOutputEvent | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT event_json FROM structured_output_events WHERE event_id = ?",
+                (str(event_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return StructuredOutputEvent.model_validate_json(row["event_json"])
+
+    def list_structured_output_events(
+        self,
+        *,
+        alert_levels: set[str] | None = None,
+        include_delivered: bool = False,
+        limit: int | None = None,
+    ) -> list[StructuredOutputEvent]:
+        query = """
+            SELECT e.event_json FROM structured_output_events e
+            LEFT JOIN dingtalk_deliveries d
+                ON d.event_id = e.event_id AND d.status = 'succeeded'
+        """
+        if not include_delivered:
+            query += " WHERE d.event_id IS NULL"
+        query += " ORDER BY json_extract(e.event_json, '$.created_at'), e.event_id"
+        with self._connect() as connection:
+            rows = connection.execute(query).fetchall()
+
+        events: list[StructuredOutputEvent] = []
+        for row in rows:
+            event = StructuredOutputEvent.model_validate_json(row["event_json"])
+            if alert_levels is not None and event.alert_level.value not in alert_levels:
+                continue
+            events.append(event)
+            if limit is not None and limit >= 0 and len(events) >= limit:
+                break
+        return events
+
+    @staticmethod
+    def _row_to_delivery(row: sqlite3.Row) -> DingTalkDeliveryRecord:
+        return DingTalkDeliveryRecord.model_validate(
+            {
+                "event_id": UUID(row["event_id"]),
+                "clean_item_id": UUID(row["clean_item_id"]),
+                "alert_level": row["alert_level"],
+                "send_mode": row["send_mode"],
+                "status": row["status"],
+                "attempt_count": row["attempt_count"],
+                "immediate": bool(row["immediate"]),
+                "dry_run": bool(row["dry_run"]),
+                "payload_hash": row["payload_hash"],
+                "payload_json": row["payload_json"],
+                "response_status_code": row["response_status_code"],
+                "response_body": row["response_body"],
+                "error": row["error"],
+                "created_at": datetime.fromisoformat(row["created_at"]),
+                "updated_at": datetime.fromisoformat(row["updated_at"]),
+            }
+        )
+
+    def get_dingtalk_delivery(
+        self,
+        event_id: UUID | str,
+    ) -> DingTalkDeliveryRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM dingtalk_deliveries WHERE event_id = ?",
+                (str(event_id),),
+            ).fetchone()
+        return self._row_to_delivery(row) if row is not None else None
+
+    def list_dingtalk_attempts(
+        self,
+        event_id: UUID | str,
+    ) -> list[DingTalkDeliveryAttempt]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM dingtalk_delivery_attempts
+                WHERE event_id = ? ORDER BY attempt_number
+                """,
+                (str(event_id),),
+            ).fetchall()
+        return [
+            DingTalkDeliveryAttempt.model_validate(
+                {
+                    "event_id": UUID(row["event_id"]),
+                    "attempt_number": row["attempt_number"],
+                    "status": row["status"],
+                    "dry_run": bool(row["dry_run"]),
+                    "payload_hash": row["payload_hash"],
+                    "response_status_code": row["response_status_code"],
+                    "response_body": row["response_body"],
+                    "error": row["error"],
+                    "started_at": datetime.fromisoformat(row["started_at"]),
+                    "completed_at": datetime.fromisoformat(row["completed_at"]),
+                }
+            )
+            for row in rows
+        ]
+
+    def save_dingtalk_delivery_start(self, record: DingTalkDeliveryRecord) -> None:
+        with self._connect() as connection:
+            self._upsert_delivery(connection, record)
+
+    def save_dingtalk_delivery_result(
+        self,
+        result: DingTalkDeliveryResult,
+    ) -> None:
+        now = datetime.now().isoformat()
+        with self._connect() as connection:
+            self._upsert_delivery(connection, result.record)
+            if result.attempt is not None:
+                attempt = result.attempt
+                connection.execute(
+                    """
+                    INSERT INTO dingtalk_delivery_attempts (
+                        event_id, attempt_number, status, dry_run, payload_hash,
+                        response_status_code, response_body, error, started_at,
+                        completed_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(event_id, attempt_number) DO UPDATE SET
+                        status = excluded.status,
+                        dry_run = excluded.dry_run,
+                        payload_hash = excluded.payload_hash,
+                        response_status_code = excluded.response_status_code,
+                        response_body = excluded.response_body,
+                        error = excluded.error,
+                        started_at = excluded.started_at,
+                        completed_at = excluded.completed_at
+                    """,
+                    (
+                        str(attempt.event_id),
+                        attempt.attempt_number,
+                        attempt.status,
+                        int(attempt.dry_run),
+                        attempt.payload_hash,
+                        attempt.response_status_code,
+                        attempt.response_body,
+                        attempt.error,
+                        attempt.started_at.isoformat(),
+                        attempt.completed_at.isoformat(),
+                        now,
+                    ),
+                )
+
+    @staticmethod
+    def _upsert_delivery(
+        connection: sqlite3.Connection,
+        record: DingTalkDeliveryRecord,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO dingtalk_deliveries (
+                event_id, clean_item_id, alert_level, send_mode, status,
+                attempt_count, immediate, dry_run, payload_hash, payload_json,
+                response_status_code, response_body, error, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(event_id) DO UPDATE SET
+                clean_item_id = excluded.clean_item_id,
+                alert_level = excluded.alert_level,
+                send_mode = excluded.send_mode,
+                status = excluded.status,
+                attempt_count = excluded.attempt_count,
+                immediate = excluded.immediate,
+                dry_run = excluded.dry_run,
+                payload_hash = excluded.payload_hash,
+                payload_json = excluded.payload_json,
+                response_status_code = excluded.response_status_code,
+                response_body = excluded.response_body,
+                error = excluded.error,
+                updated_at = excluded.updated_at
+            """,
+            (
+                str(record.event_id),
+                str(record.clean_item_id),
+                record.alert_level.value,
+                record.send_mode,
+                record.status,
+                record.attempt_count,
+                int(record.immediate),
+                int(record.dry_run),
+                record.payload_hash,
+                record.payload_json,
+                record.response_status_code,
+                record.response_body,
+                record.error,
+                record.created_at.isoformat(),
+                record.updated_at.isoformat(),
+            ),
+        )

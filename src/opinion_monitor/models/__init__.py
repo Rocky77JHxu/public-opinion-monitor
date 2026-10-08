@@ -17,6 +17,15 @@ from opinion_monitor.models.enums import (
     MediaCrawlerPlatform,
     SourceType,
 )
+from opinion_monitor.models.output import (
+    DingTalkAttemptStatus,
+    DingTalkAutomationPayload,
+    DingTalkDeliveryAttempt,
+    DingTalkDeliveryRecord,
+    DingTalkDeliveryResult,
+    DingTalkDeliveryStatus,
+    DingTalkSendMode,
+)
 from opinion_monitor.models.processing import ProcessingResult
 from opinion_monitor.models.raw import RawItem, utc_now
 from opinion_monitor.models.scoring import (
@@ -33,6 +42,13 @@ __all__ = [
     "CleanItem",
     "CommentRecord",
     "DiscardedItem",
+    "DingTalkAttemptStatus",
+    "DingTalkAutomationPayload",
+    "DingTalkDeliveryAttempt",
+    "DingTalkDeliveryRecord",
+    "DingTalkDeliveryResult",
+    "DingTalkDeliveryStatus",
+    "DingTalkSendMode",
     "GeoEvidence",
     "HotSearchPlatform",
     "LLMAuditRecord",

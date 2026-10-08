@@ -225,7 +225,7 @@ def test_storage_persists_scoring_result_and_structured_event(tmp_path: Path) ->
     assert storage.stats()["risk_assessments"] == 1
     assert storage.stats()["structured_output_events"] == 1
     with sqlite3.connect(storage.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
 
 
 def test_cli_previews_risk_assessment_without_write(

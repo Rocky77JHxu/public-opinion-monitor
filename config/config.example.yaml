@@ -281,6 +281,8 @@ output:
   dingtalk:
     enabled: true
     webhook_url_env: DINGTALK_AUTOMATION_WEBHOOK_URL
+    # 需与钉钉自动化 Webhook 触发关键词一致。
+    trigger_keyword: 舆情预警
     timeout_seconds: 15
     max_retries: 3
     retry_backoff_seconds: 5
