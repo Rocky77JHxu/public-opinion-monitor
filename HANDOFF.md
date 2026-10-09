@@ -28,6 +28,7 @@
 - Phase 8 已验证并提交，提交为 `fc919a9`，待随本次交接更新一起推送。
 - Phase 8 热搜条数限制补充提交为 `f35544d`。
 - 2026-10-09 已完成覆盖热搜、关键词、指定账号、LLM、评分与钉钉的真实端到端测试。
+- Phase 8 一键端到端测试脚本已提交推送，提交为 `2f6288c`。
 
 ## 已完成工作
 
@@ -1371,9 +1372,70 @@ PRAGMA integrity_check = ok
 foreign_key_errors = 0
 ```
 
+### 一键端到端测试脚本
+
+- 新增：
+  - `scripts/e2e-test.sh`
+- 使用方式：
+
+```bash
+# 安全预览，不访问外部服务
+scripts/e2e-test.sh
+
+# 真实端到端测试
+scripts/e2e-test.sh --execute
+```
+
+- 默认真实测试范围：
+  - 热搜：baidu + bilibili。
+  - 每个热搜平台 1 条。
+  - 关键词：xhs / 火灾 / 1 条 / 5 条评论。
+  - 指定账号：provided_xhs_account / 1 条 / 5 条评论。
+  - LLM：真实调用。
+  - 评分：真实执行。
+  - 钉钉：真实投递。
+  - SQLite：独立 `data/e2e/script-*` 目录。
+- 脚本自动执行：
+  1. Ruff / Mypy / Pytest。
+  2. 环境变量存在性与占位符检查。
+  3. 隔离测试配置生成。
+  4. 严格环境变量配置校验。
+  5. 热搜 / 关键词 / 指定账号采集。
+  6. 清洗 / LLM / 评分 / 钉钉产出。
+  7. LLM 429 自动补跑。
+  8. 钉钉失败自动补推。
+  9. SQLite 完整性与来源覆盖验收。
+  10. 更新 `data/e2e/latest` 链接。
+- 支持参数：
+  - `--execute`
+  - `--preview`
+  - `--generate-only`
+  - `--skip-tests`
+  - `--skip-account`
+  - `--all-hotsearch`
+  - `--hotsearch-platform`
+  - `--keyword`
+  - `--account-id`
+  - `--hotsearch-limit`
+  - `--media-limit`
+  - `--llm-limit`
+  - `--output-limit`
+  - `--llm-retries`
+  - `--retry-delay`
+  - `--config`
+  - `--env-file`
+  - `--root`
+- 已验证：
+  - `bash -n` 通过。
+  - `--help` 测试通过。
+  - `--generate-only` 测试通过。
+  - 安全预览模式通过。
+- 新增测试文件：
+  - `tests/test_e2e_script.py`
+
 ### Phase 8 验证结果
 
-- 测试：`111 passed`
+- 测试：`113 passed`
 - Ruff：`All checks passed!`
 - Mypy：`Success: no issues found in 65 source files`
 - 示例配置严格环境变量校验通过。
@@ -1387,6 +1449,7 @@ foreign_key_errors = 0
   - `scheduler_runs=6`。
 - 实现提交：`fc919a9`
 - 热搜条数限制提交：`f35544d`
+- 一键测试脚本提交：`2f6288c`
 - 新增文档：`docs/end-to-end.md`
 
 ## 当前阻塞点
