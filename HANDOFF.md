@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 8 已完成统一端到端 PipelineService、热搜自动入库、MediaCrawler 统一入库、清洗 / LLM / 评分 / 钉钉统一调度、按来源独立调度状态、并发上限、超时、单次 run-pipeline 与常驻 run-scheduler CLI；本地安全预览与调度试运行已通过，尚未执行 Phase 8 全量真实外部请求。
+建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 8 已完成统一端到端 PipelineService、热搜自动入库、MediaCrawler 统一入库、清洗 / LLM / 评分 / 钉钉统一调度、按来源独立调度状态、并发上限、超时、单次 run-pipeline 与常驻 run-scheduler CLI；本地安全预览、调度试运行与覆盖热搜 / 关键词 / 指定账号的真实端到端测试已完成，最终 3 条结构化事件均成功推送钉钉。
 
 ## 更新时间
 
@@ -26,6 +26,8 @@
 - Phase 6 已验证并提交，提交为 `c2fe1f9`，待随本次交接更新一起推送。
 - Phase 7 已验证并提交，提交为 `0dd8add`，待随本次交接更新一起推送。
 - Phase 8 已验证并提交，提交为 `fc919a9`，待随本次交接更新一起推送。
+- Phase 8 热搜条数限制补充提交为 `f35544d`。
+- 2026-10-09 已完成覆盖热搜、关键词、指定账号、LLM、评分与钉钉的真实端到端测试。
 
 ## 已完成工作
 
@@ -1186,34 +1188,221 @@ opinion-monitor --config config/config.local.yaml run-scheduler
   - idle_seconds 约为 280 秒
 - 未访问任何外部服务。
 
+### 端到端 YAML 配置补齐
+
+已补充：
+
+- `hotsearch.defaults.max_items_per_platform`
+  - 示例配置默认 50。
+  - 本地配置默认 5。
+  - 用于控制每个热搜平台进入后续 LLM 链路的条数。
+- `run-pipeline --hotsearch-limit`
+- `run-scheduler --hotsearch-limit`
+- 本地 `config.local.yaml`：
+  - level_1 关键词补齐为 `火灾`。
+  - 指定账号保持 `provided_xhs_account`。
+  - `output.dingtalk.trigger_keyword` 显式补齐为 `舆情预警`。
+  - MediaCrawler task_dir 恢复为标准 `data/media_crawler/tasks`。
+- 示例与本地配置均通过严格环境变量校验。
+
+### 2026-10-09 真实端到端测试
+
+测试范围：
+
+- 热搜：5 个平台全部尝试。
+- 关键词：小红书 / `火灾` / 1 条内容 / 5 条评论。
+- 指定账号：`provided_xhs_account` / 1 条内容 / 1 条评论。
+- LLM：真实 Responses API。
+- 评分：真实执行。
+- 钉钉：真实 Webhook。
+- 独立数据库：
+  - `data/e2e/full-20261009-131341/opinion_monitor.db`
+
+初始流水线 Run ID：
+
+- `26bcd878-1f5e-4c92-89c2-ebd29ddf54dc`
+
+#### 热搜结果
+
+成功平台：
+
+- baidu
+- bilibili
+
+失败平台：
+
+- weibo：响应中没有可解析的热搜条目。
+- zhihu：HTTP 403。
+- douyin：空响应体。
+
+结果：
+
+- 热搜阶段状态为 `partial`。
+- 成功平台数据已继续进入后续链路。
+- 符合单平台失败不阻塞其他平台的设计。
+- 失败原因属于外部平台响应 / 反爬限制，不是流水线中断。
+
+#### MediaCrawler 结果
+
+关键词任务：
+
+- 平台：xhs。
+- 关键词：火灾。
+- 状态：succeeded。
+- 内容：1 条。
+- 评论：5 条。
+- watchdog：未触发。
+
+指定账号任务：
+
+- 配置 ID：provided_xhs_account。
+- 平台：xhs。
+- 状态：succeeded。
+- 内容：1 条。
+- 评论：1 条。
+- watchdog：未触发。
+
+#### 清洗结果
+
+- 输入：3 条。
+- 接受：3 条。
+- 丢弃：0 条。
+
+覆盖来源：
+
+1. hotsearch / baidu。
+2. keyword_search / xhs / 火灾。
+3. account / xhs / provided_xhs_account。
+
+#### LLM 结果与重试
+
+初始执行：
+
+- 2 条成功。
+- 1 条关键词条目遇到 HTTP 429。
+
+失败条目：
+
+- CleanItem：`ff01b3cf-d789-56f7-9cc1-d2afbc0920e8`
+- 标题：`火灾你好烧啊🔥🥵`
+
+等待速率限制恢复后重试：
+
+- 状态：succeeded。
+- Token 用量：
+  - prompt/input：2874。
+  - completion/output：1240。
+  - total：4114。
+
+最终：
+
+- 3 条 CleanItem 全部完成 LLM 分析。
+- 3 条全部完成评分。
+- 3 条全部生成结构化事件。
+
+#### 最终研判摘要
+
+1. 热搜 / baidu：
+
+```text
+CleanItem: 635b050d-9d8a-5aa1-9ff8-2e5cd4f60a62
+标题: 探索浩瀚宇宙 发展航天事业
+分类: other
+综合分: 26.955
+预警级别: archive
+```
+
+2. 关键词 / xhs / 火灾：
+
+```text
+CleanItem: ff01b3cf-d789-56f7-9cc1-d2afbc0920e8
+标题: 火灾你好烧啊🔥🥵
+分类: other
+综合分: 43.5664
+预警级别: blue
+```
+
+3. 指定账号 / xhs / provided_xhs_account：
+
+```text
+CleanItem: ad76a9ca-c3a1-5862-b380-7f52cf0232eb
+标题: 尊界刹车踏板断裂风波，三大关键疑问待解
+分类: sudden_event
+综合分: 56.4061
+预警级别: blue
+```
+
+#### 钉钉结果
+
+全部成功：
+
+| 事件 ID | 来源 | HTTP | 响应 |
+|---|---|---:|---|
+| `5c6f56ec-b0e4-5928-87ac-2c7c197a0846` | 热搜 | 200 | `{"data":true,"success":true}` |
+| `88246bab-f49a-5d05-a727-6829e86d6c53` | 指定账号 | 200 | `{"data":true,"success":true}` |
+| `2b1d388a-3622-5163-8392-bcefcd3f2e04` | 关键词补跑 | 200 | `{"data":true,"success":true}` |
+
+结论：
+
+- 3 条结构化事件全部成功推送钉钉。
+- 所有响应均为 `success=true`。
+- 钉钉投递台账均为 `succeeded`。
+
+#### 数据库验证
+
+最终统计：
+
+```text
+raw_items = 3
+clean_items = 3
+comment_records = 6
+llm_analysis_audits = 4
+llm_analysis_results = 3
+risk_assessments = 3
+structured_output_events = 3
+dingtalk_deliveries = 3
+dingtalk_delivery_attempts = 3
+```
+
+完整性：
+
+```text
+PRAGMA integrity_check = ok
+foreign_key_errors = 0
+```
+
 ### Phase 8 验证结果
 
 - 测试：`111 passed`
 - Ruff：`All checks passed!`
 - Mypy：`Success: no issues found in 65 source files`
 - 示例配置严格环境变量校验通过。
+- 真实端到端测试通过：
+  - 热搜 / 关键词 / 指定账号均已入库。
+  - 3 条 CleanItem 全部完成 LLM 分析与评分。
+  - 3 条结构化事件全部成功推送钉钉。
 - 本地 SQLite：
   - Schema version=5。
   - `scheduler_state=6`。
   - `scheduler_runs=6`。
 - 实现提交：`fc919a9`
+- 热搜条数限制提交：`f35544d`
 - 新增文档：`docs/end-to-end.md`
 
 ## 当前阻塞点
 
-1. 尚未执行 Phase 8 的全量真实外部请求试运行。
-2. 尚未在钉钉群 / 表格中人工确认自动化 Workflow 最终展示效果。
+1. weibo / zhihu / douyin 热搜在真实测试中受外部响应或反爬影响，本次仅 baidu / bilibili 成功。
+2. 尚未在钉钉群 / 表格中人工确认本次 3 条事件的最终展示效果。
 3. 尚未实现 PostgreSQL 存储。
-4. 尚未对其余 5 条 CleanItem 执行完整 LLM 分析与评分。
+4. 尚未对正式库中其余 5 条 CleanItem 执行完整 LLM 分析与评分。
 5. 情感分类体系仍是候选方案，等待业务确认。
 
 ## 紧接着的后续步骤
 
-1. 执行一次小规模 `run-pipeline --execute` 真实端到端试运行。
-2. 执行一次 `run-scheduler --execute` 真实调度周期。
-3. 用户在钉钉群 / 表格中确认无敏感契约测试事件与真实蓝色事件是否按预期展示。
-4. 如展示字段缺失，调整钉钉 Workflow 映射。
-5. 评估是否补齐其余 5 条 CleanItem 的 LLM 分析与评分。
+1. 用户在钉钉群 / 表格中确认本次 3 条真实事件是否按预期展示。
+2. 如展示字段缺失，调整钉钉 Workflow 映射。
+3. 后续单独处理 weibo / zhihu / douyin 的平台适配或降级策略。
+4. 评估是否补齐正式库中其余 5 条 CleanItem 的 LLM 分析与评分。
 
 ## 阶段实施计划
 
@@ -1224,7 +1413,7 @@ opinion-monitor --config config/config.local.yaml run-scheduler
 5. **Phase 5**：OpenAI 兼容 Responses API 与严格结构化输出。基线、最小冒烟与一条完整四任务真实分析已完成。
 6. **Phase 6**：评分、预警级别分类与可解释记录。已完成一条真实数据端到端评分入库。
 7. **Phase 7**：钉钉自动化输出、重试与投递台账。代码基线、无敏感契约测试与真实事件端到端投递均已完成。
-8. **Phase 8**：端到端与定时试运行。编排、调度、CLI、台账与本地安全试运行已完成，真实全量试运行待执行。
+8. **Phase 8**：端到端与定时试运行。编排、调度、CLI、台账、本地安全试运行与覆盖三类来源的真实端到端测试已完成。
 
 ## 关键决策
 
