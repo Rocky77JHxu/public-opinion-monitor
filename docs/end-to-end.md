@@ -536,6 +536,76 @@ uv run opinion-monitor --config config/config.local.yaml run-scheduler
 
 ## 推荐试运行顺序
 
+### 0. 一键脚本
+
+安全预览：
+
+```bash
+scripts/e2e-test.sh
+```
+
+真实端到端测试：
+
+```bash
+scripts/e2e-test.sh --execute
+```
+
+默认真实测试使用：
+
+```text
+热搜：baidu + bilibili，每个平台 1 条
+关键词：小红书 / 火灾 / 1 条 / 5 条评论
+指定账号：provided_xhs_account / 1 条 / 5 条评论
+LLM：真实调用
+钉钉：真实投递
+数据库：data/e2e/script-* 独立目录
+```
+
+脚本会自动执行：
+
+1. Ruff / Mypy / Pytest 基线检查。
+2. 环境变量占位符检查。
+3. 隔离测试配置生成。
+4. 严格配置校验。
+5. 热搜、关键词、指定账号采集。
+6. 清洗、LLM、评分与钉钉产出。
+7. LLM 429 自动补跑。
+8. 钉钉失败补推。
+9. SQLite 完整性、来源覆盖、分析 / 评分 / 投递缺口验收。
+10. 更新 `data/e2e/latest` 链接。
+
+常用变体：
+
+```bash
+# 尝试全部热搜平台
+scripts/e2e-test.sh --execute --all-hotsearch
+
+# 跳过指定账号
+scripts/e2e-test.sh --execute --skip-account
+
+# 更换关键词
+scripts/e2e-test.sh --execute --keyword 火灾
+
+# 只生成测试配置，不运行流水线
+scripts/e2e-test.sh --generate-only --skip-tests
+```
+
+脚本内置 429 补跑：
+
+```text
+默认补跑次数：3
+默认等待时间：60 秒
+```
+
+可通过以下参数调整：
+
+```bash
+scripts/e2e-test.sh \
+  --execute \
+  --llm-retries 5 \
+  --retry-delay 90
+```
+
 1. 本地预览：
 
 ```bash

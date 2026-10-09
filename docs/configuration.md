@@ -304,6 +304,22 @@ uv run opinion-monitor \
 
 详细设计见 [端到端编排与定时试运行设计](end-to-end.md)。
 
+### 一键端到端测试
+
+安全预览：
+
+```bash
+scripts/e2e-test.sh
+```
+
+真实测试：
+
+```bash
+scripts/e2e-test.sh --execute
+```
+
+脚本会创建独立测试数据库与任务目录，不会修改正式数据库。
+
 MediaCrawler 条数保护：
 
 ```yaml

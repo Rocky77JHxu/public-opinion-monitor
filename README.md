@@ -105,6 +105,7 @@ uv run opinion-monitor preview-risk-assessment
 uv run opinion-monitor preview-dingtalk-output --include-queued
 uv run opinion-monitor run-pipeline
 uv run opinion-monitor run-scheduler
+scripts/e2e-test.sh --execute
 uv run opinion-monitor init-db
 uv run opinion-monitor ingest-mediacrawler-task --help
 uv run opinion-monitor run-mediacrawler --help
