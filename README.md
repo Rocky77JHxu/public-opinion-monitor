@@ -1,6 +1,6 @@
 # 舆情监测系统
 
-本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 7：钉钉自动化产出** 阶段。MediaCrawler 已固定接入，SQLite 原始层 / 评论证据 / 清洗层 / LLM 分析层 / 评分层已实现，Responses API 严格结构化输出、综合评分、预警级别、结构化事件、钉钉 Payload 构建、dry-run、重试与投递台账基线已可用；未启动常驻爬取任务。
+本项目是一个面向受控合规场景的舆情采集、标准化、研判、评分与通知流水线。当前项目处于 **Phase 8：端到端编排与定时试运行** 阶段。MediaCrawler 已固定接入，热搜、关键词、指定账号、清洗、LLM 分析、评分、结构化事件与钉钉产出已可通过统一流水线和调度器执行；默认不访问外部服务，显式 `--execute` 才发起真实请求。
 
 ## 系统定位
 
@@ -24,6 +24,7 @@
 - [LLM 分析设计](docs/llm-analysis.md)
 - [钉钉自动化产出设计](docs/dingtalk-output.md)
 - [热搜采集设计](docs/hotsearch.md)
+- [端到端编排与定时试运行设计](docs/end-to-end.md)
 
 ## 当前状态
 
@@ -66,16 +67,20 @@
 - Webhook 公共地址校验、超时、重试与业务响应校验。
 - 钉钉投递状态与逐次尝试台账。
 - `preview-dingtalk-output`、`send-dingtalk-output` CLI。
+- 热搜结果自动入库并进入清洗链路。
+- 统一端到端 `PipelineService`。
+- 按热搜平台 / 关键词层级 / 指定账号拆分的调度来源。
+- 调度间隔、浮动窗口、下次执行时间与并发上限。
+- 调度状态与调度运行台账。
+- `run-pipeline`、`run-scheduler` CLI。
 - `plan-mediacrawler` 与 `load-mediacrawler` CLI 子命令。
 - 五个平台的合成 fixture 与回归测试。
 
 尚未实现：
 
-- 常驻调度器。
-- MediaCrawler 常驻调度与 PostgreSQL 存储。
+- PostgreSQL 存储。
 - LLM 批量并发调用、结果缓存与质量评测集。
-- 真实钉钉 Webhook 契约测试与真实结构化事件端到端投递已完成。
-- 常驻调度器自动触发钉钉产出。
+- 分布式锁、多进程部署与死信队列。
 
 ## 开发环境
 
@@ -98,6 +103,8 @@ uv run opinion-monitor plan-mediacrawler --source keyword
 uv run opinion-monitor preview-llm-analysis
 uv run opinion-monitor preview-risk-assessment
 uv run opinion-monitor preview-dingtalk-output --include-queued
+uv run opinion-monitor run-pipeline
+uv run opinion-monitor run-scheduler
 uv run opinion-monitor init-db
 uv run opinion-monitor ingest-mediacrawler-task --help
 uv run opinion-monitor run-mediacrawler --help

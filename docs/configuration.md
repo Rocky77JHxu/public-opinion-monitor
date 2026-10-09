@@ -240,6 +240,60 @@ mediacrawler:
 
 Runner 会校验 `third_party/MediaCrawler` 的实际 `HEAD` 与 `pinned_ref` 是否一致。版本不匹配时拒绝执行。
 
+## 端到端与调度配置
+
+调度全局配置：
+
+```yaml
+scheduler:
+  enabled: true
+  max_concurrent_tasks: 3
+  task_timeout_seconds: 1800
+  missed_task_policy: skip
+```
+
+含义：
+
+- `enabled`：是否允许 `run-scheduler` 执行周期。
+- `max_concurrent_tasks`：单个周期内并发执行的采集来源上限。
+- `task_timeout_seconds`：单个采集来源或后续处理流水线的超时时间。
+- `missed_task_policy`：错过多个周期时只补跑一次，不连续追赶历史周期。
+
+单次端到端预览：
+
+```bash
+uv run opinion-monitor --config config/config.local.yaml run-pipeline
+```
+
+单次端到端真实执行：
+
+```bash
+uv run opinion-monitor \
+  --config config/config.local.yaml \
+  --env-file .env \
+  run-pipeline \
+  --execute
+```
+
+调度单周期预览：
+
+```bash
+uv run opinion-monitor --config config/config.local.yaml run-scheduler
+```
+
+常驻真实调度：
+
+```bash
+uv run opinion-monitor \
+  --config config/config.local.yaml \
+  --env-file .env \
+  run-scheduler \
+  --forever \
+  --execute
+```
+
+详细设计见 [端到端编排与定时试运行设计](end-to-end.md)。
+
 MediaCrawler 条数保护：
 
 ```yaml

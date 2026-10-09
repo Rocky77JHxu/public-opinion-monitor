@@ -21,6 +21,7 @@ from opinion_monitor.collectors.mediacrawler.task_builder import (
     build_account_tasks,
     build_keyword_task,
     build_keyword_tasks,
+    build_keyword_tasks_for_level,
 )
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "build_account_tasks",
     "build_keyword_task",
     "build_keyword_tasks",
+    "build_keyword_tasks_for_level",
     "discover_jsonl_files",
     "load_jsonl",
     "MediaCrawlerRunner",

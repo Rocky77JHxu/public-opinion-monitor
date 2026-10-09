@@ -126,6 +126,39 @@ def build_keyword_tasks(config: RootConfig) -> list[MediaCrawlerTask]:
     return tasks
 
 
+def build_keyword_tasks_for_level(
+    config: RootConfig,
+    level_name: str,
+) -> list[MediaCrawlerTask]:
+    """构建指定关键词层级的全部任务，供调度器独立触发。"""
+
+    keyword_config = config.keyword_search
+    level = keyword_config.levels.get(level_name)
+    if level is None:
+        raise ValueError(f"关键词层级不存在：{level_name}")
+    if not keyword_config.defaults.enabled or not level.enabled:
+        return []
+
+    tasks: list[MediaCrawlerTask] = []
+    for level_order, name in enumerate(keyword_config.levels, start=1):
+        if name != level_name:
+            continue
+        for platform in level.platforms:
+            for keyword in level.keywords:
+                tasks.append(
+                    _keyword_task(
+                        level_name,
+                        level_order,
+                        level,
+                        platform,
+                        keyword,
+                        config.mediacrawler,
+                        keyword_config.defaults.max_items_per_keyword,
+                    )
+                )
+    return tasks
+
+
 def build_account_tasks(config: RootConfig) -> list[MediaCrawlerTask]:
     """构建已启用的指定账号任务。"""
 

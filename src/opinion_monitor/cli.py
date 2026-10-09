@@ -22,6 +22,7 @@ from opinion_monitor.collectors.mediacrawler import (
     build_account_tasks,
     build_keyword_task,
     build_keyword_tasks,
+    build_keyword_tasks_for_level,
     load_jsonl,
 )
 from opinion_monitor.config import (
@@ -37,6 +38,7 @@ from opinion_monitor.config.schema import RootConfig
 from opinion_monitor.llm import LLMAnalysisService
 from opinion_monitor.models import HotSearchPlatform, MediaCrawlerPlatform
 from opinion_monitor.observability import configure_logging
+from opinion_monitor.orchestration import PipelineService, SchedulerService
 from opinion_monitor.output import DingTalkOutputService
 from opinion_monitor.scoring import RiskScoringService
 from opinion_monitor.storage import (
@@ -345,6 +347,94 @@ def build_parser() -> argparse.ArgumentParser:
         help="显式发送真实 Webhook 请求；未传时只 dry-run",
     )
     send_output.set_defaults(handler=run_send_dingtalk_output)
+
+    run_pipeline = subparsers.add_parser(
+        "run-pipeline",
+        help="端到端执行采集、清洗、LLM、评分与钉钉产出；默认不访问外部服务",
+    )
+    run_pipeline.add_argument(
+        "--source",
+        choices=["all", "hotsearch", "media"],
+        default="all",
+        help="采集来源范围",
+    )
+    run_pipeline.add_argument(
+        "--hotsearch-platform",
+        action="append",
+        choices=[platform.value for platform in HotSearchPlatform],
+        help="只执行指定热搜平台；可重复传入",
+    )
+    run_pipeline.add_argument(
+        "--media-platform",
+        action="append",
+        choices=[platform.value for platform in MediaCrawlerPlatform],
+        help="只保留指定 MediaCrawler 平台；可重复传入",
+    )
+    run_pipeline.add_argument(
+        "--keyword-level",
+        action="append",
+        help="只执行指定关键词层级；可重复传入",
+    )
+    run_pipeline.add_argument(
+        "--account-config-id",
+        action="append",
+        help="只执行指定账号；可重复传入",
+    )
+    run_pipeline.add_argument("--media-limit", type=int, default=None, help="任务加载条数上限")
+    run_pipeline.add_argument("--llm-limit", type=int, default=None, help="LLM 分析条数上限")
+    run_pipeline.add_argument("--output-limit", type=int, default=None, help="钉钉产出条数上限")
+    run_pipeline.add_argument("--skip-processing", action="store_true", help="跳过清洗阶段")
+    run_pipeline.add_argument("--skip-llm", action="store_true", help="跳过 LLM 阶段")
+    run_pipeline.add_argument("--skip-scoring", action="store_true", help="跳过评分阶段")
+    run_pipeline.add_argument("--skip-output", action="store_true", help="跳过钉钉产出阶段")
+    run_pipeline.add_argument(
+        "--include-queued",
+        action="store_true",
+        help="包含 immediate=false 的蓝色等队列事件",
+    )
+    run_pipeline.add_argument("--fail-fast", action="store_true", help="任一阶段失败后停止后续阶段")
+    run_pipeline.add_argument(
+        "--execute",
+        action="store_true",
+        help="显式允许热搜、MediaCrawler、LLM 与钉钉真实请求",
+    )
+    run_pipeline.set_defaults(handler=run_pipeline_command)
+
+    run_scheduler = subparsers.add_parser(
+        "run-scheduler",
+        help="按配置间隔执行定时采集与后续处理；默认单周期且不访问外部服务",
+    )
+    run_scheduler.add_argument("--max-cycles", type=int, default=1, help="最多执行周期数")
+    run_scheduler.add_argument(
+        "--forever",
+        action="store_true",
+        help="持续运行，直到进程被停止",
+    )
+    run_scheduler.add_argument(
+        "--idle-seconds",
+        type=float,
+        default=30.0,
+        help="没有到期任务时的休眠秒数",
+    )
+    run_scheduler.add_argument("--media-limit", type=int, default=None, help="任务加载条数上限")
+    run_scheduler.add_argument("--llm-limit", type=int, default=None, help="LLM 分析条数上限")
+    run_scheduler.add_argument("--output-limit", type=int, default=None, help="钉钉产出条数上限")
+    run_scheduler.add_argument("--skip-processing", action="store_true", help="跳过清洗阶段")
+    run_scheduler.add_argument("--skip-llm", action="store_true", help="跳过 LLM 阶段")
+    run_scheduler.add_argument("--skip-scoring", action="store_true", help="跳过评分阶段")
+    run_scheduler.add_argument("--skip-output", action="store_true", help="跳过钉钉产出阶段")
+    run_scheduler.add_argument(
+        "--include-queued",
+        action="store_true",
+        help="包含 immediate=false 的蓝色等队列事件",
+    )
+    run_scheduler.add_argument("--fail-fast", action="store_true", help="采集失败后跳过后续处理")
+    run_scheduler.add_argument(
+        "--execute",
+        action="store_true",
+        help="显式允许外部平台、LLM 与钉钉真实请求",
+    )
+    run_scheduler.set_defaults(handler=run_scheduler_command)
 
     return parser
 
@@ -809,6 +899,126 @@ def run_send_dingtalk_output(args: argparse.Namespace) -> int:
             failed = True
         output.append(result.model_dump(mode="json"))
     print(json.dumps({"events": output}, ensure_ascii=False, indent=2))
+    return 2 if failed else 0
+
+
+def _pipeline_media_tasks(
+    config: RootConfig,
+    args: argparse.Namespace,
+) -> list[Any]:
+    if args.source == "hotsearch":
+        return []
+
+    tasks: list[Any] = []
+    account_ids = args.account_config_id
+    keyword_levels = args.keyword_level
+    if account_ids:
+        for account_id in account_ids:
+            tasks.append(build_account_task(config, account_id))
+    elif keyword_levels:
+        for level_name in keyword_levels:
+            tasks.extend(build_keyword_tasks_for_level(config, level_name))
+    else:
+        tasks.extend(build_keyword_tasks(config))
+        tasks.extend(build_account_tasks(config))
+
+    if args.media_platform:
+        selected = {MediaCrawlerPlatform(platform) for platform in args.media_platform}
+        tasks = [task for task in tasks if task.platform in selected]
+    return tasks
+
+
+def _pipeline_hotsearch_platforms(
+    config: RootConfig,
+    args: argparse.Namespace,
+) -> list[HotSearchPlatform]:
+    if args.source == "media":
+        return []
+    selected_names = args.hotsearch_platform
+    enabled = [
+        platform
+        for platform, platform_config in config.hotsearch.platforms.items()
+        if config.hotsearch.defaults.enabled and platform_config.enabled
+    ]
+    if not selected_names:
+        return enabled
+    selected = {HotSearchPlatform(platform) for platform in selected_names}
+    return [platform for platform in enabled if platform in selected]
+
+
+def run_pipeline_command(args: argparse.Namespace) -> int:
+    environment = dict(build_environment(args.env_file))
+    _environment, config = _environment_and_config(args)
+    storage = _sqlite_storage_from_config(config)
+    service = PipelineService(config, env=environment, storage=storage)
+    result = asyncio.run(
+        service.run(
+            execute=args.execute,
+            hotsearch_platforms=_pipeline_hotsearch_platforms(config, args),
+            media_tasks=_pipeline_media_tasks(config, args),
+            run_processing=not args.skip_processing,
+            run_llm=not args.skip_llm,
+            run_scoring=not args.skip_scoring,
+            run_output=not args.skip_output,
+            include_queued=args.include_queued,
+            media_limit=args.media_limit,
+            llm_limit=args.llm_limit,
+            output_limit=args.output_limit,
+            fail_fast=args.fail_fast,
+        )
+    )
+    print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
+    return 2 if result.status == "failed" else 0
+
+
+def run_scheduler_command(args: argparse.Namespace) -> int:
+    if args.forever is False and args.max_cycles < 1:
+        raise ConfigError("run-scheduler 的 --max-cycles 必须大于等于 1")
+
+    environment = dict(build_environment(args.env_file))
+    _environment, config = _environment_and_config(args)
+    storage = _sqlite_storage_from_config(config)
+    storage.initialise()
+    scheduler = SchedulerService(
+        config,
+        storage=storage,
+        pipeline_factory=lambda: PipelineService(
+            config,
+            env=environment,
+            storage=storage,
+        ),
+    )
+
+    cycles: list[dict[str, Any]] = []
+    cycle_number = 0
+    failed = False
+    while args.forever or cycle_number < args.max_cycles:
+        cycle_number += 1
+        result = asyncio.run(
+            scheduler.run_cycle(
+                execute=args.execute,
+                include_queued=args.include_queued,
+                media_limit=args.media_limit,
+                llm_limit=args.llm_limit,
+                output_limit=args.output_limit,
+                fail_fast=args.fail_fast,
+                run_processing=not args.skip_processing,
+                run_llm=not args.skip_llm,
+                run_scoring=not args.skip_scoring,
+                run_output=not args.skip_output,
+            )
+        )
+        cycles.append(result.model_dump(mode="json"))
+        if result.status == "failed":
+            failed = True
+            break
+        if args.forever:
+            idle_seconds = max(args.idle_seconds, result.idle_seconds or 0.0)
+            if not result.source_runs and result.status == "skipped":
+                idle_seconds = args.idle_seconds
+            asyncio.run(asyncio.sleep(idle_seconds))
+
+    print(json.dumps({"cycles": cycles}, ensure_ascii=False, indent=2))
     return 2 if failed else 0
 
 

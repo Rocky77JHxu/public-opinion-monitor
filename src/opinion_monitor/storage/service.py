@@ -17,7 +17,7 @@ from opinion_monitor.collectors.mediacrawler.result_loader import (
     load_jsonl,
 )
 from opinion_monitor.config.schema import RootConfig
-from opinion_monitor.models import ProcessingResult
+from opinion_monitor.models import ProcessingResult, utc_now
 from opinion_monitor.processing import CleaningPipeline
 from opinion_monitor.storage.database import SqliteStorage
 
@@ -54,8 +54,9 @@ def ingest_and_process_media_crawler_task(
     task: MediaCrawlerTask,
     *,
     storage: SqliteStorage | None = None,
+    process: bool = True,
 ) -> Phase4IngestSummary:
-    """加载任务输出、持久化原始数据并执行清洗。"""
+    """加载任务输出、持久化原始数据，并按需执行清洗。"""
 
     if config.storage.backend != "sqlite":
         message = "Phase 4 当前仅实现 SQLite；请在 storage.backend 中使用 sqlite"
@@ -90,11 +91,23 @@ def ingest_and_process_media_crawler_task(
 
     pending = repository.list_pending_raw_items()
     existing = repository.list_clean_items()
-    processing = CleaningPipeline(config.processing, config.rules).run(
-        pending,
-        existing_items=existing,
-    )
-    repository.save_processing_result(processing)
+    processing: ProcessingResult
+    if process:
+        processing = CleaningPipeline(config.processing, config.rules).run(
+            pending,
+            existing_items=existing,
+        )
+        repository.save_processing_result(processing)
+    else:
+        processing = ProcessingResult(
+            processing_run_id=task.task_id,
+            reference_time=utc_now(),
+            input_count=0,
+            accepted_count=0,
+            discarded_count=0,
+            accepted_items=[],
+            discarded_items=[],
+        )
 
     return Phase4IngestSummary(
         task_id=str(task.task_id),

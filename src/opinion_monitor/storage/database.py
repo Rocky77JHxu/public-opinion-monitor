@@ -34,7 +34,7 @@ from opinion_monitor.models import (
 )
 from opinion_monitor.models.enums import HotSearchPlatform, MediaCrawlerPlatform
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_crawler_tasks (
@@ -240,6 +240,30 @@ CREATE TABLE IF NOT EXISTS dingtalk_delivery_attempts (
     created_at TEXT NOT NULL,
     UNIQUE(event_id, attempt_number)
 );
+
+CREATE TABLE IF NOT EXISTS scheduler_state (
+    source_key TEXT PRIMARY KEY,
+    source_kind TEXT NOT NULL,
+    last_run_at TEXT NOT NULL,
+    next_run_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS scheduler_runs (
+    id TEXT PRIMARY KEY,
+    cycle_id TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    source_kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    error TEXT,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_scheduler_runs_cycle
+    ON scheduler_runs(cycle_id, started_at);
 """
 
 
@@ -633,6 +657,8 @@ class SqliteStorage:
                 "structured_output_events",
                 "dingtalk_deliveries",
                 "dingtalk_delivery_attempts",
+                "scheduler_state",
+                "scheduler_runs",
             )
             return {
                 table: int(
@@ -1050,3 +1076,78 @@ class SqliteStorage:
                 record.updated_at.isoformat(),
             ),
         )
+
+    def list_scheduler_state(self) -> dict[str, datetime]:
+        """返回全部调度来源的下次执行时间。"""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT source_key, next_run_at FROM scheduler_state"
+            ).fetchall()
+        return {row["source_key"]: datetime.fromisoformat(row["next_run_at"]) for row in rows}
+
+    def save_scheduler_state(
+        self,
+        *,
+        source_key: str,
+        source_kind: str,
+        last_run_at: datetime,
+        next_run_at: datetime,
+    ) -> None:
+        now = datetime.now().isoformat()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO scheduler_state (
+                    source_key, source_kind, last_run_at, next_run_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(source_key) DO UPDATE SET
+                    source_kind = excluded.source_kind,
+                    last_run_at = excluded.last_run_at,
+                    next_run_at = excluded.next_run_at,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    source_key,
+                    source_kind,
+                    last_run_at.isoformat(),
+                    next_run_at.isoformat(),
+                    now,
+                ),
+            )
+
+    def save_scheduler_run(
+        self,
+        *,
+        run_id: UUID,
+        cycle_id: UUID,
+        source_key: str,
+        source_kind: str,
+        status: str,
+        started_at: datetime,
+        completed_at: datetime,
+        result: dict[str, Any],
+        error: str | None = None,
+    ) -> None:
+        now = datetime.now().isoformat()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO scheduler_runs (
+                    id, cycle_id, source_key, source_kind, status, started_at,
+                    completed_at, error, result_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(run_id),
+                    str(cycle_id),
+                    source_key,
+                    source_kind,
+                    status,
+                    started_at.isoformat(),
+                    completed_at.isoformat(),
+                    error,
+                    _dump(result),
+                    now,
+                ),
+            )
