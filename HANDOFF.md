@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 7 已完成钉钉自动化 Payload 构建、安全脱敏、dry-run、真实投递客户端、重试、响应校验、投递状态与逐次尝试台账；真实结构化事件已完成 Payload 预览与 dry-run 入库，真实 Webhook 冒烟因 URL 仍为占位符未发出外部请求。
+建立舆情监测系统的私有版本控制仓库与中文设计基线，然后按阶段实现采集、清洗、研判、评分与钉钉产出能力。Phase 8 已完成统一端到端 PipelineService、热搜自动入库、MediaCrawler 统一入库、清洗 / LLM / 评分 / 钉钉统一调度、按来源独立调度状态、并发上限、超时、单次 run-pipeline 与常驻 run-scheduler CLI；本地安全预览与调度试运行已通过，尚未执行 Phase 8 全量真实外部请求。
 
 ## 更新时间
 
@@ -25,6 +25,7 @@
 - 2026-10-09 最小真实 Structured Outputs 冒烟成功，无请求失败。
 - Phase 6 已验证并提交，提交为 `c2fe1f9`，待随本次交接更新一起推送。
 - Phase 7 已验证并提交，提交为 `0dd8add`，待随本次交接更新一起推送。
+- Phase 8 已验证并提交，提交为 `fc919a9`，待随本次交接更新一起推送。
 
 ## 已完成工作
 
@@ -980,20 +981,239 @@ Phase 3 验证结果：
 - 实现提交：`0dd8add`
 - 新增文档：`docs/dingtalk-output.md`
 
+## Phase 8 实现
+
+### 目标
+
+Phase 8 补齐端到端编排与定时试运行：
+
+```text
+热搜采集
+MediaCrawler 关键词采集
+MediaCrawler 指定账号采集
+        ↓
+RawItem / CommentRecord 入库
+        ↓
+清洗 / 去重 / 规则分类
+        ↓
+LLM 分析
+        ↓
+综合评分 / 预警级别
+        ↓
+StructuredOutputEvent
+        ↓
+钉钉自动化产出
+        ↓
+调度与投递台账
+```
+
+### 领域模型
+
+- 新增：
+  - `PipelineStageResult`
+  - `PipelineRunResult`
+  - `ScheduledSource`
+  - `SchedulerSourceRun`
+  - `SchedulerCycleResult`
+- 阶段状态：
+  - `succeeded`
+  - `partial`
+  - `failed`
+  - `skipped`
+- 每个阶段保存：
+  - 阶段名。
+  - 状态。
+  - 开始 / 结束时间。
+  - 耗时。
+  - 计数与证据。
+  - 错误原因。
+
+### PipelineService
+
+- 新增统一端到端服务：
+  - `src/opinion_monitor/orchestration/pipeline.py`
+- 支持阶段：
+  1. 热搜采集与 RawItem 入库。
+  2. MediaCrawler 采集、内容 / 评论 JSONL 入库。
+  3. 统一清洗。
+  4. LLM 四任务分析。
+  5. 综合评分与结构化事件。
+  6. 钉钉产出。
+- 热搜阶段单平台失败不影响其他平台。
+- 全部启用热搜平台失败才标记阶段失败。
+- 部分成功 / 部分失败标记 `partial`。
+- MediaCrawler 任务先入库，不在单任务内立即清洗，避免并发调度来源重复处理 pending 数据。
+- 后续由统一清洗阶段集中处理全部 pending RawItem。
+- LLM 阶段逐条保留成功 / 失败审计。
+- 评分阶段只处理已有 LLM 分析且尚无评分的 CleanItem。
+- 钉钉阶段默认只处理启用级别；`--include-queued` 时包含蓝色等非即时事件。
+- 预览模式不访问任何外部服务。
+- 真实模式必须显式传入 `--execute`。
+
+### SchedulerService
+
+- 新增调度服务：
+  - `src/opinion_monitor/orchestration/scheduler.py`
+- 调度来源：
+  - `hotsearch:<platform>`
+  - `keyword_search:<level_name>`
+  - `account:<account_config_id>`
+- 每个来源独立计算：
+  - interval。
+  - jitter 最小值。
+  - jitter 最大值。
+  - 下次执行时间。
+- 热搜平台支持完整覆盖 interval / jitter。
+- 采集来源按 `scheduler.max_concurrent_tasks` 控制并发。
+- 每个来源受 `scheduler.task_timeout_seconds` 超时约束。
+- 采集层完成后统一执行一次后续处理，避免并发清洗重复。
+- `missed_task_policy=skip/run_once` 当前均只补跑一次，不连续追赶历史错过的多个周期。
+
+### SQLite 持久化
+
+- Schema version 从 4 升级为 5。
+- 新增表：
+  - `scheduler_state`
+  - `scheduler_runs`
+- `scheduler_state` 按来源保存：
+  - source_key。
+  - source_kind。
+  - last_run_at。
+  - next_run_at。
+  - updated_at。
+- `scheduler_runs` 保存：
+  - 调度运行 ID。
+  - 周期 ID。
+  - 来源。
+  - 状态。
+  - 开始 / 结束时间。
+  - 错误。
+  - 完整 Pipeline 结果 JSON。
+- 已在本地真实 SQLite 数据库完成 Schema 4 -> 5 迁移。
+
+### CLI：run-pipeline
+
+- 新增：
+  - `run-pipeline`
+- 支持：
+  - `--source all|hotsearch|media`
+  - `--hotsearch-platform`
+  - `--media-platform`
+  - `--keyword-level`
+  - `--account-config-id`
+  - `--media-limit`
+  - `--llm-limit`
+  - `--output-limit`
+  - `--skip-processing`
+  - `--skip-llm`
+  - `--skip-scoring`
+  - `--skip-output`
+  - `--include-queued`
+  - `--fail-fast`
+  - `--execute`
+- 默认不访问外部服务。
+
+### CLI：run-scheduler
+
+- 新增：
+  - `run-scheduler`
+- 支持：
+  - `--max-cycles`
+  - `--forever`
+  - `--idle-seconds`
+  - `--media-limit`
+  - `--llm-limit`
+  - `--output-limit`
+  - `--skip-processing`
+  - `--skip-llm`
+  - `--skip-scoring`
+  - `--skip-output`
+  - `--include-queued`
+  - `--fail-fast`
+  - `--execute`
+- 默认单周期。
+- 默认不访问外部服务，但会推进调度状态以验证下次执行时间。
+- `--forever` 时按空闲时间常驻运行。
+
+### 本地安全预览
+
+已执行：
+
+```bash
+opinion-monitor --config config/config.local.yaml run-pipeline
+```
+
+结果：
+
+- Run ID：`64aff2e8-04f7-4f95-b8c0-49da75d54517`
+- executed：`false`
+- status：`succeeded`
+- 阶段：
+  - hotsearch：skipped，未访问 5 个平台。
+  - mediacrawler：skipped，未启动 1 个账号任务。
+  - processing：无 pending 输入。
+  - llm_analysis：skipped，待分析 5 条，未调用模型。
+  - risk_scoring：skipped，无待评分条目。
+  - dingtalk_output：skipped，无待投递事件。
+- 未访问热搜、MediaCrawler、LLM 或钉钉。
+
+### 调度器本地试运行
+
+已执行：
+
+```bash
+opinion-monitor --config config/config.local.yaml run-scheduler
+```
+
+结果：
+
+- Cycle ID：`65813053-22d2-45de-83b6-3c2b85b530a4`
+- executed：`false`
+- status：`succeeded`
+- 到期来源：6 个。
+  - hotsearch:weibo
+  - hotsearch:baidu
+  - hotsearch:zhihu
+  - hotsearch:douyin
+  - hotsearch:bilibili
+  - account:provided_xhs_account
+- 后续处理状态：succeeded。
+- 保存：
+  - `scheduler_state=6`
+  - `scheduler_runs=6`
+- 第二次执行时无来源到期：
+  - source_run_count=0
+  - idle_seconds 约为 280 秒
+- 未访问任何外部服务。
+
+### Phase 8 验证结果
+
+- 测试：`111 passed`
+- Ruff：`All checks passed!`
+- Mypy：`Success: no issues found in 65 source files`
+- 示例配置严格环境变量校验通过。
+- 本地 SQLite：
+  - Schema version=5。
+  - `scheduler_state=6`。
+  - `scheduler_runs=6`。
+- 实现提交：`fc919a9`
+- 新增文档：`docs/end-to-end.md`
+
 ## 当前阻塞点
 
-1. 尚未在钉钉群 / 表格中人工确认自动化 Workflow 最终展示效果。
-2. 尚未实现 PostgreSQL 存储。
-3. 尚未实现常驻调度器。
+1. 尚未执行 Phase 8 的全量真实外部请求试运行。
+2. 尚未在钉钉群 / 表格中人工确认自动化 Workflow 最终展示效果。
+3. 尚未实现 PostgreSQL 存储。
 4. 尚未对其余 5 条 CleanItem 执行完整 LLM 分析与评分。
 5. 情感分类体系仍是候选方案，等待业务确认。
 
 ## 紧接着的后续步骤
 
-1. 用户在钉钉群 / 表格中确认无敏感契约测试事件与真实蓝色事件是否按预期展示。
-2. 如展示字段缺失，调整钉钉 Workflow 映射。
-3. 进入 Phase 8：端到端编排与定时试运行。
-4. 实现常驻调度器。
+1. 执行一次小规模 `run-pipeline --execute` 真实端到端试运行。
+2. 执行一次 `run-scheduler --execute` 真实调度周期。
+3. 用户在钉钉群 / 表格中确认无敏感契约测试事件与真实蓝色事件是否按预期展示。
+4. 如展示字段缺失，调整钉钉 Workflow 映射。
+5. 评估是否补齐其余 5 条 CleanItem 的 LLM 分析与评分。
 
 ## 阶段实施计划
 
@@ -1004,7 +1224,7 @@ Phase 3 验证结果：
 5. **Phase 5**：OpenAI 兼容 Responses API 与严格结构化输出。基线、最小冒烟与一条完整四任务真实分析已完成。
 6. **Phase 6**：评分、预警级别分类与可解释记录。已完成一条真实数据端到端评分入库。
 7. **Phase 7**：钉钉自动化输出、重试与投递台账。代码基线、无敏感契约测试与真实事件端到端投递均已完成。
-8. **Phase 8**：端到端与定时试运行。
+8. **Phase 8**：端到端与定时试运行。编排、调度、CLI、台账与本地安全试运行已完成，真实全量试运行待执行。
 
 ## 关键决策
 
