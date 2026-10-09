@@ -365,6 +365,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="只执行指定热搜平台；可重复传入",
     )
     run_pipeline.add_argument(
+        "--hotsearch-limit",
+        type=int,
+        default=None,
+        help="每个热搜平台最多进入后续链路的条数",
+    )
+    run_pipeline.add_argument(
         "--media-platform",
         action="append",
         choices=[platform.value for platform in MediaCrawlerPlatform],
@@ -417,6 +423,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="没有到期任务时的休眠秒数",
     )
     run_scheduler.add_argument("--media-limit", type=int, default=None, help="任务加载条数上限")
+    run_scheduler.add_argument(
+        "--hotsearch-limit",
+        type=int,
+        default=None,
+        help="每个热搜平台最多进入后续链路的条数",
+    )
     run_scheduler.add_argument("--llm-limit", type=int, default=None, help="LLM 分析条数上限")
     run_scheduler.add_argument("--output-limit", type=int, default=None, help="钉钉产出条数上限")
     run_scheduler.add_argument("--skip-processing", action="store_true", help="跳过清洗阶段")
@@ -955,6 +967,7 @@ def run_pipeline_command(args: argparse.Namespace) -> int:
         service.run(
             execute=args.execute,
             hotsearch_platforms=_pipeline_hotsearch_platforms(config, args),
+            hotsearch_limit=args.hotsearch_limit,
             media_tasks=_pipeline_media_tasks(config, args),
             run_processing=not args.skip_processing,
             run_llm=not args.skip_llm,
@@ -997,6 +1010,7 @@ def run_scheduler_command(args: argparse.Namespace) -> int:
         result = asyncio.run(
             scheduler.run_cycle(
                 execute=args.execute,
+                hotsearch_limit=args.hotsearch_limit,
                 include_queued=args.include_queued,
                 media_limit=args.media_limit,
                 llm_limit=args.llm_limit,

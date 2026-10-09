@@ -104,6 +104,7 @@ class JitterConfig(StrictModel):
 
 class HotSearchDefaults(JitterConfig):
     enabled: bool
+    max_items_per_platform: PositiveInt = 50
     timeout_seconds: PositiveFloat
     max_retries: NonNegativeInt
     retry_backoff_seconds: NonNegativeFloat = 0.5

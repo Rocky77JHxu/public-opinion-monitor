@@ -36,6 +36,7 @@ class SchedulerPipeline(Protocol):
         *,
         execute: bool,
         hotsearch_platforms: Sequence[HotSearchPlatform] = (),
+        hotsearch_limit: int | None = None,
         media_tasks: Sequence[MediaCrawlerTask] = (),
         run_processing: bool = True,
         run_llm: bool = True,
@@ -234,6 +235,7 @@ class SchedulerService:
         *,
         cycle_id: uuid.UUID,
         execute: bool,
+        hotsearch_limit: int | None,
         media_limit: int | None,
     ) -> SchedulerSourceRun:
         started_at = utc_now()
@@ -245,6 +247,7 @@ class SchedulerService:
                     hotsearch_platforms=(
                         [source.hotsearch_platform] if source.hotsearch_platform is not None else []
                     ),
+                    hotsearch_limit=hotsearch_limit,
                     media_tasks=self._tasks_for_source(source),
                     run_processing=False,
                     run_llm=False,
@@ -297,6 +300,7 @@ class SchedulerService:
         self,
         *,
         execute: bool,
+        hotsearch_limit: int | None = None,
         include_queued: bool = False,
         media_limit: int | None = None,
         llm_limit: int | None = None,
@@ -345,6 +349,7 @@ class SchedulerService:
                     source,
                     cycle_id=cycle_id,
                     execute=execute,
+                    hotsearch_limit=hotsearch_limit,
                     media_limit=media_limit,
                 )
 

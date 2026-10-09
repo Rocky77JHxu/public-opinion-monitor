@@ -242,6 +242,16 @@ Runner 会校验 `third_party/MediaCrawler` 的实际 `HEAD` 与 `pinned_ref` �
 
 ## 端到端与调度配置
 
+热搜进入后续链路的数量：
+
+```yaml
+hotsearch:
+  defaults:
+    max_items_per_platform: 5
+```
+
+该配置表示每个热搜平台每次最多保存并进入清洗 / LLM / 评分链路的条数，避免一次采集把大量普通热词全部送入模型。`run-pipeline` 与 `run-scheduler` 还支持 `--hotsearch-limit` 进行单次覆盖。
+
 调度全局配置：
 
 ```yaml

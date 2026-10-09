@@ -23,6 +23,8 @@ scheduler:
 hotsearch:
   defaults:
     enabled: true
+    # 单个热搜平台每次最多进入后续处理链路的条数。
+    max_items_per_platform: 50
     interval_seconds: 300
     jitter_min_seconds: 15
     jitter_max_seconds: 45

@@ -48,6 +48,18 @@ def _hotsearch_raw() -> RawItem:
     )
 
 
+def _second_hotsearch_raw() -> RawItem:
+    return _hotsearch_raw().model_copy(
+        update={
+            "id": uuid4(),
+            "external_id": "weibo:hot-2",
+            "title": "某地暴雨预警持续发布",
+            "url": "https://s.weibo.com/weibo?q=%E6%9A%B4%E9%9B%A8",
+            "rank": 2,
+        }
+    )
+
+
 def _media_task(tmp_path: Path) -> MediaCrawlerTask:
     task_id = uuid4()
     workspace = tmp_path / "tasks" / str(task_id) / "xhs" / "jsonl"
@@ -120,7 +132,7 @@ class FakeHotSearchCollector:
 
 def test_pipeline_persists_hotsearch_and_processes_clean_items(tmp_path: Path) -> None:
     raw = _hotsearch_raw()
-    collector = FakeHotSearchCollector([raw])
+    collector = FakeHotSearchCollector([raw, _second_hotsearch_raw()])
     storage = SqliteStorage(tmp_path / "state.db")
     service = PipelineService(
         CONFIG,
@@ -135,6 +147,7 @@ def test_pipeline_persists_hotsearch_and_processes_clean_items(tmp_path: Path) -
         service.run(
             execute=True,
             hotsearch_platforms=[HotSearchPlatform.WEIBO],
+            hotsearch_limit=1,
             run_llm=False,
         )
     )
@@ -146,6 +159,9 @@ def test_pipeline_persists_hotsearch_and_processes_clean_items(tmp_path: Path) -
     assert storage.stats()["risk_assessments"] == 0
     stage_status = {stage.stage: stage.status for stage in pipeline_result.stages}
     assert stage_status["hotsearch"] == "succeeded"
+    hotsearch_stage = next(stage for stage in pipeline_result.stages if stage.stage == "hotsearch")
+    assert hotsearch_stage.details["parsed_items"] == 2
+    assert hotsearch_stage.details["items_to_save"] == 1
     assert stage_status["processing"] == "succeeded"
     assert stage_status["risk_scoring"] == "skipped"
 

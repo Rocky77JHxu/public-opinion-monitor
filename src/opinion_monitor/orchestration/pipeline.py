@@ -110,6 +110,7 @@ class PipelineService:
         platforms: Sequence[HotSearchPlatform],
         *,
         execute: bool,
+        item_limit: int | None = None,
     ) -> PipelineStageResult:
         started = self._clock()
         started_at = utc_now()
@@ -135,7 +136,16 @@ class PipelineService:
             allow_private_network=self._config.security.allow_private_network,
         )
         result: HotSearchCollectionResult = await collector.collect(platforms)
-        inserted = self._storage.save_raw_items(result.items)
+        limit = item_limit or self._config.hotsearch.defaults.max_items_per_platform
+        saved_counts = {platform.value: 0 for platform in platforms}
+        items_to_save = []
+        for item in result.items:
+            platform_value = item.platform.value
+            if saved_counts[platform_value] >= limit:
+                continue
+            items_to_save.append(item)
+            saved_counts[platform_value] += 1
+        inserted = self._storage.save_raw_items(items_to_save)
         failed = [outcome for outcome in result.outcomes if outcome.enabled and not outcome.success]
         status: ExecutionStatus = "succeeded"
         if not result.successful_platforms:
@@ -153,7 +163,9 @@ class PipelineService:
                     outcome.platform.value for outcome in result.outcomes if outcome.success
                 ],
                 "failed_platforms": [outcome.platform.value for outcome in failed],
-                "items": len(result.items),
+                "parsed_items": len(result.items),
+                "items_to_save": len(items_to_save),
+                "item_limit": limit,
                 "raw_inserted": inserted,
             },
             error=None
@@ -469,6 +481,7 @@ class PipelineService:
         *,
         execute: bool,
         hotsearch_platforms: Sequence[HotSearchPlatform] = (),
+        hotsearch_limit: int | None = None,
         media_tasks: Sequence[MediaCrawlerTask] = (),
         run_processing: bool = True,
         run_llm: bool = True,
@@ -489,7 +502,13 @@ class PipelineService:
         stages: list[PipelineStageResult] = []
 
         try:
-            stages.append(await self._run_hotsearch(hotsearch_platforms, execute=execute))
+            stages.append(
+                await self._run_hotsearch(
+                    hotsearch_platforms,
+                    execute=execute,
+                    item_limit=hotsearch_limit,
+                )
+            )
             if fail_fast and stages[-1].status == "failed":
                 raise RuntimeError(f"热搜阶段失败：{stages[-1].error}")
 

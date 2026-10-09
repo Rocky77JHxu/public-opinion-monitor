@@ -84,6 +84,7 @@ src/opinion_monitor/orchestration/pipeline.py
 - 只采集指定或已启用平台。
 - 单平台失败不影响其他平台。
 - 解析结果直接保存为 `RawItem`。
+- 每个平台可配置 `max_items_per_platform`，也可用 `--hotsearch-limit` 单次覆盖。
 - 部分平台失败时阶段为 `partial`。
 - 全部启用平台失败时阶段为 `failed`。
 
@@ -264,6 +265,7 @@ uv run opinion-monitor \
   --env-file .env \
   run-pipeline \
   --media-limit 5 \
+  --hotsearch-limit 1 \
   --llm-limit 5 \
   --output-limit 5 \
   --execute
